@@ -1,0 +1,18 @@
+# Cart-Pendulum Control Requirements
+
+# Core dependencies
+gymnasium>=0.29.1
+stable-baselines3>=2.3.0
+torch>=2.2.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+scipy>=1.10.0
+
+# Optional but recommended
+jupyter>=1.0.0
+ipython>=8.0.0
+
+# For development
+pytest>=7.0.0  # For unit tests (future work)
+black>=23.0.0  # For code formatting (future work)
