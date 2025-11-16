@@ -10,6 +10,9 @@ Modules:
     classical_control: TrajectoryPlanner - Optimal control baseline
     training: SAC training pipeline with curriculum learning
     evaluation: Fair comparison tools with normalized observations
+    analysis: Basin of Attraction and grid evaluation tools
+    visualization: Publication-quality plotting and heatmaps
+    rendering: Matplotlib animations for trajectory visualization
     utils: Helper functions for state conversion and normalization
 
 Example:
@@ -43,6 +46,10 @@ from .visualization import (
     plot_success_comparison,
     plot_metric_histogram
 )
+from .rendering import (
+    animate_trajectory,
+    animate_comparison
+)
 from .utils import (
     state_to_obs,
     obs_to_state,
@@ -69,12 +76,36 @@ except Exception:
 
 __version__ = '1.0.0'
 __all__ = [
+    # Environment
     'CartPendulumEnv',
+    # Classical control
     'TrajectoryPlanner',
     'compute_lqr_gain',
+    # Training
     'train_sac',
     'finetune_sac',
     'TextProgressCallback',
+    # Evaluation
+    'rollout_rl',
+    'rollout_classical',
+    'rollout_rl_timed',
+    'rollout_classical_timed',
+    'compare_controllers',
+    'compute_metrics',
+    # Analysis
+    'create_state_grid',
+    'compute_success_metrics',
+    'evaluate_state_grid',
+    'summarize_results',
+    # Visualization
+    'plot_basin_of_attraction',
+    'plot_timing_comparison',
+    'plot_success_comparison',
+    'plot_metric_histogram',
+    # Rendering
+    'animate_trajectory',
+    'animate_comparison',
+    # Utilities
     'state_to_obs',
     'obs_to_state',
     'normalize_obs_from_state',

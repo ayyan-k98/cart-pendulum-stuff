@@ -89,7 +89,10 @@ class CartPendulumEnv(gym.Env):
         >>> obs, reward, terminated, truncated, info = env.step(action)
     """
 
-    metadata = {"render_modes": []}
+    metadata = {
+        "render_modes": ["human", "rgb_array"],
+        "render_fps": 50
+    }
 
     # Physical constants
     M = 1.0      # Cart mass (kg)
@@ -109,6 +112,7 @@ class CartPendulumEnv(gym.Env):
         seed: Optional[int] = None,
         stabilization_prob: float = 0.0,
         reward_weights: Optional[Dict[str, float]] = None,
+        render_mode: Optional[str] = None,
     ):
         """
         Initialize the Cart-Pendulum environment.
@@ -210,6 +214,11 @@ class CartPendulumEnv(gym.Env):
         # Random number generator
         if seed is not None:
             self.seed(seed)
+
+        # Rendering
+        self.render_mode = render_mode
+        self.screen = None
+        self.clock = None
 
     def _sample_friction_for_episode(self):
         """
@@ -498,3 +507,186 @@ class CartPendulumEnv(gym.Env):
         """
         self.state = np.array(state, dtype=np.float64)
         self._last_u = 0.0
+
+    def render(self):
+        """
+        Render the cart-pendulum system using pygame.
+
+        Rendering code adapted from Gymnasium's CartPole-v1 (MIT License).
+        https://github.com/Farama-Foundation/Gymnasium
+
+        Returns:
+            If render_mode is "rgb_array", returns numpy array of shape (H, W, 3)
+            representing the rendered frame. Otherwise returns None.
+        """
+        if self.render_mode is None:
+            return None
+
+        try:
+            import pygame
+            from pygame import gfxdraw
+        except ImportError as e:
+            raise gym.error.DependencyNotInstalled(
+                "pygame is not installed, run `pip install gymnasium[classic-control]`"
+            ) from e
+
+        # Screen dimensions
+        screen_width = 600
+        screen_height = 400
+
+        # World coordinates
+        world_width = 5.0  # Show ±2.5m
+        scale = screen_width / world_width
+
+        # Cart dimensions (in pixels)
+        cart_width = 50.0
+        cart_height = 30.0
+
+        # Pole dimensions
+        pole_width = 10.0
+        pole_length = scale * 2.0 * self.l  # pole goes from pivot to end (2*l total)
+
+        if self.screen is None:
+            pygame.init()
+            if self.render_mode == "human":
+                pygame.display.init()
+                self.screen = pygame.display.set_mode((screen_width, screen_height))
+                pygame.display.set_caption("Cart-Pendulum")
+            else:  # rgb_array
+                self.screen = pygame.Surface((screen_width, screen_height))
+
+        if self.clock is None:
+            self.clock = pygame.time.Clock()
+
+        # Fill background
+        self.screen.fill((255, 255, 255))
+
+        # Get current state
+        theta, theta_dot, x, x_dot = self.state
+
+        # Convert world coordinates to screen coordinates
+        cart_x = int(x * scale + screen_width / 2.0)  # x=0 is center
+        cart_y = int(screen_height * 0.7)  # Cart height from top
+
+        # Draw rail
+        rail_y = cart_y + cart_height / 2
+        rail_left = int(screen_width / 2 - 2.4 * scale)
+        rail_right = int(screen_width / 2 + 2.4 * scale)
+        pygame.draw.line(
+            self.screen,
+            (0, 0, 0),  # Black
+            (rail_left, int(rail_y)),
+            (rail_right, int(rail_y)),
+            4
+        )
+
+        # Draw rail limits (red markers)
+        limit_height = 20
+        pygame.draw.line(
+            self.screen,
+            (200, 0, 0),  # Red
+            (rail_left, int(rail_y - limit_height)),
+            (rail_left, int(rail_y + limit_height)),
+            3
+        )
+        pygame.draw.line(
+            self.screen,
+            (200, 0, 0),  # Red
+            (rail_right, int(rail_y - limit_height)),
+            (rail_right, int(rail_y + limit_height)),
+            3
+        )
+
+        # Draw cart (blue rectangle)
+        cart_rect = pygame.Rect(
+            int(cart_x - cart_width / 2),
+            int(cart_y - cart_height / 2),
+            int(cart_width),
+            int(cart_height)
+        )
+        gfxdraw.box(self.screen, cart_rect, (70, 130, 180))  # Steel blue
+        pygame.draw.rect(self.screen, (0, 0, 0), cart_rect, 2)  # Black border
+
+        # Draw pole (red line with circle at end)
+        # Pole rotates from cart center, theta=0 is up, positive is CCW
+        pole_pivot_x = cart_x
+        pole_pivot_y = cart_y
+
+        pole_end_x = pole_pivot_x + pole_length * math.sin(theta)
+        pole_end_y = pole_pivot_y - pole_length * math.cos(theta)  # y is down in pygame
+
+        # Draw pole line
+        pygame.draw.line(
+            self.screen,
+            (139, 0, 0),  # Dark red
+            (int(pole_pivot_x), int(pole_pivot_y)),
+            (int(pole_end_x), int(pole_end_y)),
+            int(pole_width)
+        )
+
+        # Draw pole mass (circle at end)
+        gfxdraw.filled_circle(
+            self.screen,
+            int(pole_end_x),
+            int(pole_end_y),
+            int(pole_width * 1.5),
+            (180, 0, 0)  # Brighter red
+        )
+        gfxdraw.aacircle(
+            self.screen,
+            int(pole_end_x),
+            int(pole_end_y),
+            int(pole_width * 1.5),
+            (0, 0, 0)  # Black outline
+        )
+
+        # Draw state information
+        font = pygame.font.Font(None, 24)
+        angle_deg = math.degrees(theta)
+
+        info_lines = [
+            f"θ = {angle_deg:6.1f}°",
+            f"θ̇ = {theta_dot:6.2f} rad/s",
+            f"x = {x:6.2f} m",
+            f"ẋ = {x_dot:6.2f} m/s",
+        ]
+
+        y_offset = 10
+        for line in info_lines:
+            text_surface = font.render(line, True, (0, 0, 0))
+            self.screen.blit(text_surface, (10, y_offset))
+            y_offset += 25
+
+        # Add upright indicator
+        if abs(theta) < math.radians(10):
+            status_text = "UPRIGHT ✓"
+            status_color = (0, 150, 0)  # Green
+        else:
+            status_text = "BALANCING"
+            status_color = (150, 0, 0)  # Red
+
+        status_surface = font.render(status_text, True, status_color)
+        self.screen.blit(status_surface, (screen_width - 150, 10))
+
+        if self.render_mode == "human":
+            pygame.event.pump()
+            pygame.display.flip()
+            self.clock.tick(self.metadata["render_fps"])
+            return None
+        else:  # rgb_array
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
+            )
+
+    def close(self):
+        """
+        Clean up rendering resources.
+
+        Closes pygame display and quits pygame if it was initialized.
+        """
+        if self.screen is not None:
+            import pygame
+            pygame.display.quit()
+            pygame.quit()
+            self.screen = None
+            self.clock = None
