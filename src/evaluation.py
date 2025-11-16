@@ -12,6 +12,7 @@ License: MIT
 """
 
 import os
+import time
 from typing import Tuple, Dict, List, Optional
 import numpy as np
 import pandas as pd
@@ -201,6 +202,201 @@ def rollout_classical(
         t += env.dt
 
     return pd.DataFrame(history)
+
+
+def rollout_rl_timed(
+    model: SAC,
+    vec_env: VecNormalize,
+    start_state: np.ndarray,
+    max_seconds: float = 20.0,
+    c_theta: float = 0.02,
+    c_x: float = 0.05,
+    eval_substeps: int = 10
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    """
+    Rollout RL policy with detailed timing instrumentation.
+
+    This function measures inference time at each step for performance analysis.
+
+    Args:
+        model: Trained SAC model
+        vec_env: VecNormalize wrapper
+        start_state: Initial state [θ, θ̇, x, ẋ]
+        max_seconds: Maximum episode duration
+        c_theta: Angular friction
+        c_x: Linear friction
+        eval_substeps: RK4 substeps
+
+    Returns:
+        trajectory: DataFrame with episode trajectory
+        timing_stats: Dictionary with timing statistics:
+            - 'inference_time_mean_ms': Mean inference time
+            - 'inference_time_std_ms': Std of inference time
+            - 'inference_time_max_ms': Max inference time
+            - 'per_step_times': List of all inference times (ms)
+    """
+    # Create environment
+    env = CartPendulumEnv(
+        curriculum_phase="swingup",
+        c_theta=c_theta,
+        c_x=c_x,
+        rk4_substeps=eval_substeps,
+        soft_wall_k=0.0
+    )
+
+    # Set initial state
+    env.reset()
+    env.set_state(start_state)
+
+    # Get initial normalized observation
+    obs_raw = state_to_obs(start_state)
+    obs = vec_env.normalize_obs(np.array([obs_raw], dtype=np.float32))[0]
+
+    history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
+    inference_times = []
+    t = 0.0
+    done = False
+
+    while t < max_seconds and not done:
+        # Time the inference
+        t_start = time.perf_counter()
+        action, _ = model.predict(obs, deterministic=True)
+        t_end = time.perf_counter()
+        inference_times.append((t_end - t_start) * 1000)  # Convert to ms
+
+        # Step environment
+        obs_raw, reward, terminated, truncated, info = env.step(action)
+        obs = vec_env.normalize_obs(np.array([obs_raw], dtype=np.float32))[0]
+
+        # Log state
+        state = env.get_state()
+        history['time'].append(t)
+        history['theta'].append(state[0])
+        history['x'].append(state[2])
+        history['action'].append(action[0])
+        history['reward'].append(reward)
+
+        done = terminated or truncated
+        t += env.dt
+
+    # Compute timing statistics
+    timing_stats = {
+        'inference_time_mean_ms': float(np.mean(inference_times)),
+        'inference_time_std_ms': float(np.std(inference_times)),
+        'inference_time_max_ms': float(np.max(inference_times)),
+        'per_step_times': inference_times
+    }
+
+    return pd.DataFrame(history), timing_stats
+
+
+def rollout_classical_timed(
+    planner: TrajectoryPlanner,
+    vec_env: VecNormalize,
+    start_state: np.ndarray,
+    max_seconds: float = 20.0,
+    c_theta: float = 0.02,
+    c_x: float = 0.05,
+    eval_substeps: int = 10
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    """
+    Rollout classical controller with detailed timing instrumentation.
+
+    This function measures:
+    1. Initial planning time (BVP solving) - THE CRITICAL METRIC
+    2. Per-step action computation time (FF+FB evaluation)
+
+    Args:
+        planner: TrajectoryPlanner instance
+        vec_env: VecNormalize wrapper (for consistency)
+        start_state: Initial state [θ, θ̇, x, ẋ]
+        max_seconds: Maximum episode duration
+        c_theta: Angular friction
+        c_x: Linear friction
+        eval_substeps: RK4 substeps
+
+    Returns:
+        trajectory: DataFrame with episode trajectory
+        timing_stats: Dictionary with timing statistics:
+            - 'initial_plan_time_ms': Time to compute initial trajectory (BVP)
+            - 'planning_success': Whether planning succeeded
+            - 'action_time_mean_ms': Mean per-step action time
+            - 'action_time_std_ms': Std of per-step action time
+            - 'action_time_max_ms': Max per-step action time
+            - 'per_step_times': List of all action computation times (ms)
+    """
+    # Create environment
+    env = CartPendulumEnv(
+        curriculum_phase="swingup",
+        c_theta=c_theta,
+        c_x=c_x,
+        rk4_substeps=eval_substeps,
+        soft_wall_k=0.0
+    )
+
+    # Reset planner
+    planner.reset()
+
+    # Set initial state
+    env.reset()
+    env.set_state(start_state)
+
+    # TIME THE INITIAL PLANNING (THE MONEY SHOT!)
+    t_start = time.perf_counter()
+    planning_success = planner.plan_from(start_state)
+    t_end = time.perf_counter()
+    initial_plan_time_ms = (t_end - t_start) * 1000  # Convert to ms
+
+    if not planning_success:
+        # Planning failed - return empty trajectory with timing info
+        timing_stats = {
+            'initial_plan_time_ms': initial_plan_time_ms,
+            'planning_success': False,
+            'action_time_mean_ms': 0.0,
+            'action_time_std_ms': 0.0,
+            'action_time_max_ms': 0.0,
+            'per_step_times': []
+        }
+        return pd.DataFrame({k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}), timing_stats
+
+    # Planning succeeded - execute trajectory
+    history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
+    action_times = []
+    t = 0.0
+    done = False
+
+    while t < max_seconds and not done:
+        state = env.get_state()
+
+        # Time the action computation (FF + FB evaluation)
+        t_start = time.perf_counter()
+        action = planner.get_action(state, t)
+        t_end = time.perf_counter()
+        action_times.append((t_end - t_start) * 1000)  # Convert to ms
+
+        # Step environment
+        obs, reward, terminated, truncated, info = env.step(np.array([action]))
+
+        history['time'].append(t)
+        history['theta'].append(state[0])
+        history['x'].append(state[2])
+        history['action'].append(action)
+        history['reward'].append(reward)
+
+        done = terminated or truncated
+        t += env.dt
+
+    # Compute timing statistics
+    timing_stats = {
+        'initial_plan_time_ms': initial_plan_time_ms,
+        'planning_success': True,
+        'action_time_mean_ms': float(np.mean(action_times)) if action_times else 0.0,
+        'action_time_std_ms': float(np.std(action_times)) if action_times else 0.0,
+        'action_time_max_ms': float(np.max(action_times)) if action_times else 0.0,
+        'per_step_times': action_times
+    }
+
+    return pd.DataFrame(history), timing_stats
 
 
 def compare_controllers(

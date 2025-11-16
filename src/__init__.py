@@ -23,6 +23,26 @@ License: MIT
 from .environment import CartPendulumEnv
 from .classical_control import TrajectoryPlanner, compute_lqr_gain
 from .training import train_sac, finetune_sac, TextProgressCallback
+from .evaluation import (
+    rollout_rl,
+    rollout_classical,
+    rollout_rl_timed,
+    rollout_classical_timed,
+    compare_controllers,
+    compute_metrics
+)
+from .analysis import (
+    create_state_grid,
+    compute_success_metrics,
+    evaluate_state_grid,
+    summarize_results
+)
+from .visualization import (
+    plot_basin_of_attraction,
+    plot_timing_comparison,
+    plot_success_comparison,
+    plot_metric_histogram
+)
 from .utils import (
     state_to_obs,
     obs_to_state,

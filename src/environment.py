@@ -36,7 +36,7 @@ Author: Cart-Pendulum Research Team
 License: MIT
 """
 
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union, Optional, Dict
 import math
 import numpy as np
 import gymnasium as gym
@@ -108,6 +108,7 @@ class CartPendulumEnv(gym.Env):
         du_weight: float = 1e-4,
         seed: Optional[int] = None,
         stabilization_prob: float = 0.0,
+        reward_weights: Optional[Dict[str, float]] = None,
     ):
         """
         Initialize the Cart-Pendulum environment.
@@ -145,6 +146,14 @@ class CartPendulumEnv(gym.Env):
             stabilization_prob: Probability of starting near upright in swingup mode
                 - 0.0 = always random (full swingup)
                 - 1.0 = always near upright (stabilization only)
+
+            reward_weights: Optional dictionary to customize reward function weights
+                - 'theta': Weight for angle error (default: 1.0)
+                - 'theta_dot': Weight for angular velocity (default: 0.1)
+                - 'x': Weight for position error (default: 0.5)
+                - 'x_dot': Weight for linear velocity (default: 0.01)
+                - 'u': Weight for control effort (default: 0.001)
+                If not provided, uses default weights above
         """
         super().__init__()
 
@@ -168,6 +177,18 @@ class CartPendulumEnv(gym.Env):
         self.soft_wall_start = float(soft_wall_start)
         self.soft_wall_k = float(soft_wall_k)
         self.du_weight = float(du_weight)
+
+        # Reward weights (tunable for experimentation)
+        self.reward_weights = {
+            'theta': 1.0,          # Angle cost
+            'theta_dot': 0.1,      # Angular velocity cost
+            'x': 0.5,              # Position cost
+            'x_dot': 0.01,         # Linear velocity cost
+            'u': 0.001,            # Control effort cost
+        }
+        # Override with user-provided weights
+        if reward_weights is not None:
+            self.reward_weights.update(reward_weights)
 
         # Gymnasium spaces
         # Action: force applied to cart
@@ -331,13 +352,13 @@ class CartPendulumEnv(gym.Env):
         """
         theta, theta_dot, x, x_dot = state
 
-        # Basic state costs
+        # Basic state costs (using configurable weights)
         reward = 0.0
-        reward -= theta**2  # Angle cost
-        reward -= 0.1 * theta_dot**2  # Angular velocity cost
-        reward -= 0.5 * x**2  # Position cost
-        reward -= 0.01 * x_dot**2  # Linear velocity cost
-        reward -= 0.001 * u**2  # Control effort cost
+        reward -= self.reward_weights['theta'] * theta**2  # Angle cost
+        reward -= self.reward_weights['theta_dot'] * theta_dot**2  # Angular velocity cost
+        reward -= self.reward_weights['x'] * x**2  # Position cost
+        reward -= self.reward_weights['x_dot'] * x_dot**2  # Linear velocity cost
+        reward -= self.reward_weights['u'] * u**2  # Control effort cost
 
         # Action smoothness penalty
         du = u - self._last_u
