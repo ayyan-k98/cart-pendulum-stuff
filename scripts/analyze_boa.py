@@ -16,9 +16,6 @@ Usage:
         --model runs/sac_train/phase2/sac_model.zip \\
         --vecnorm runs/sac_train/phase2/vecnormalize.pkl \\
         --n-theta 21 --n-theta-dot 21
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import argparse
