@@ -6,9 +6,6 @@ This module implements fair comparison between SAC and trajectory planning:
 - Multiple evaluation scenarios: basic rollout, angle sweeps, disturbances
 - Comprehensive metrics: success rate, control effort, tracking error
 - Visualization tools
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import os
