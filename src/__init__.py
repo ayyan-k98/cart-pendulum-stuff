@@ -18,9 +18,6 @@ Modules:
 Example:
     >>> from src import CartPendulumEnv, train_sac
     >>> model_path, vecnorm_path = train_sac(total_steps=500_000)
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 from .environment import CartPendulumEnv
