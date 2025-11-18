@@ -6,9 +6,6 @@ This module provides helper functions for:
 - Observation normalization (for fairness between RL and classical control)
 - Plotting and visualization
 - Metrics computation
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import math
