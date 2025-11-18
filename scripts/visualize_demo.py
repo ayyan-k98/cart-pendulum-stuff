@@ -16,9 +16,6 @@ Usage:
 
     # Save animations to files
     python scripts/visualize_demo.py --save-animations
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import argparse
