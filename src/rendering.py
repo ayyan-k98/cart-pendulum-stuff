@@ -9,9 +9,6 @@ Features:
 - Side-by-side animation + angle plot
 - Save to MP4/GIF for papers/presentations
 - No pygame dependency (uses matplotlib only)
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 from typing import Optional, Tuple
