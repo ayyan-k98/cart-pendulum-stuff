@@ -15,9 +15,6 @@ Features:
 - Parallel environment execution
 - Model checkpointing and resume capability
 - Progress callbacks
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import os
