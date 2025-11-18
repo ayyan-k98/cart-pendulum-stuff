@@ -19,9 +19,6 @@ Example:
     >>> # From Python
     >>> from scripts.train import main
     >>> main(['--total-steps', '100000', '--device', 'cpu'])
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import argparse
