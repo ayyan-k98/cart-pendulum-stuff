@@ -6,9 +6,6 @@ This module provides tools for:
 - Computing success metrics from trajectories
 - Running full grid evaluations with both controllers
 - Comparing controller performance across state space
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import math
