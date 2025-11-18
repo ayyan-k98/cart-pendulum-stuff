@@ -6,9 +6,6 @@ This module provides publication-quality plotting functions for:
 - Settling time heatmaps
 - Timing comparison plots (THE MONEY PLOT)
 - Performance metric comparisons
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 from typing import Optional, Tuple
