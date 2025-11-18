@@ -31,9 +31,6 @@ Key Features:
     - Soft wall penalties instead of hard termination
     - Action smoothness penalties for real-world deployment
     - Observation normalization compatible with VecNormalize
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 from typing import Tuple, Union, Optional, Dict
