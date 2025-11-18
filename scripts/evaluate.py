@@ -21,9 +21,6 @@ Usage:
         --vecnorm runs/sac_train/phase2/vecnormalize.pkl \\
         --scenario custom \\
         --angles 180 135 90 45
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import argparse
