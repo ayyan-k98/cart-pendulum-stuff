@@ -28,9 +28,6 @@ Mathematical Foundation:
     LQR formulation:
         - Riccati equation: Ṡ = -A^T S - S A - Q + S B R^{-1} B^T S
         - Feedback gain: K(t) = R^{-1} B^T S(t)
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 from typing import Optional, Tuple
