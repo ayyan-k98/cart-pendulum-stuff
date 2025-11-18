@@ -24,9 +24,6 @@ Usage:
     # Compare with classical controller
     python scripts/evaluate_checkpoint.py --model runs/sac_train/phase2/sac_model.zip \
         --compare-classical --theta0 -150
-
-Author: Cart-Pendulum Research Team
-License: MIT
 """
 
 import argparse
@@ -39,6 +36,11 @@ import matplotlib.pyplot as plt
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 from gymnasium.wrappers import TimeLimit
+
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src import (
     CartPendulumEnv,
@@ -156,13 +158,13 @@ def evaluate_single_state(
     print(f"  Final angle: {final_theta_deg:+.2f}°")
     print(f"  Success: {'✓ YES' if success else '✗ NO'} (|θ_final| < 10°)")
     print(f"  Max cart position: {trajectory['x'].abs().max():.3f} m (limit: 2.4m)")
-    print(f"  Max control force: {trajectory['u'].abs().max():.2f} N (limit: 10N)")
+    print(f"  Max control force: {trajectory['action'].abs().max():.2f} N (limit: 10N)")
 
     print(f"\nTiming statistics:")
-    print(f"  Mean inference time: {timing['mean_inference_ms']:.3f} ms")
-    print(f"  Std inference time:  {timing['std_inference_ms']:.3f} ms")
-    print(f"  Min inference time:  {timing['min_inference_ms']:.3f} ms")
-    print(f"  Max inference time:  {timing['max_inference_ms']:.3f} ms")
+    print(f"  Mean inference time: {timing['inference_time_mean_ms']:.3f} ms")
+    print(f"  Std inference time:  {timing['inference_time_std_ms']:.3f} ms")
+    print(f"  Min inference time:  {np.min(timing['per_step_times']):.3f} ms")
+    print(f"  Max inference time:  {timing['inference_time_max_ms']:.3f} ms")
 
     # Create animation if requested
     if save_animation:
@@ -221,7 +223,7 @@ def evaluate_multiple_episodes(
             'success': success,
             'final_theta': np.rad2deg(final_theta),
             'duration': traj['time'].iloc[-1],
-            'inference_ms': timing['mean_inference_ms']
+            'inference_ms': timing['inference_time_mean_ms']
         })
 
         if (ep + 1) % 10 == 0:
@@ -296,7 +298,7 @@ def evaluate_with_classical_comparison(
     print(f"  RL:")
     print(f"    Final angle: {final_theta_rl:+.2f}°")
     print(f"    Success: {'✓ YES' if success_rl else '✗ NO'}")
-    print(f"    Inference time: {timing_rl['mean_inference_ms']:.3f}ms (mean)")
+    print(f"    Inference time: {timing_rl['inference_time_mean_ms']:.3f}ms (mean)")
 
     print(f"  Classical:")
     print(f"    Final angle: {final_theta_classical:+.2f}°")
@@ -305,7 +307,7 @@ def evaluate_with_classical_comparison(
 
     # Timing comparison
     if success_rl and success_classical:
-        speedup = timing_classical.get('initial_plan_ms', 0) / timing_rl['mean_inference_ms']
+        speedup = timing_classical.get('initial_plan_ms', 0) / timing_rl['inference_time_mean_ms']
         print(f"\n  RL is ~{speedup:.0f}× faster than classical planning!")
 
     # Create comparison animation
