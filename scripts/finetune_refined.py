@@ -11,8 +11,6 @@ Usage:
         --model runs/sac_train/phase2/sac_model.zip \\
         --vecnorm runs/sac_train/phase2/vecnormalize.pkl \\
         --steps 500000
-
-Author: Cart-Pendulum Research Team
 """
 
 import argparse
