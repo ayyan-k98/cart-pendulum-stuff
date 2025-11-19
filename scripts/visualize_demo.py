@@ -60,7 +60,7 @@ def demo_pygame_rendering(vec_env, model, start_state, max_seconds=10.0):
     # Create environment with pygame rendering
     def make_render_env():
         env = CartPendulumEnv(render_mode='human')  # Enable pygame rendering
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     render_vec_env = DummyVecEnv([make_render_env])
 
@@ -224,7 +224,7 @@ def main(args):
     # Load model and environment
     def make_env():
         env = CartPendulumEnv()
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     vec_env = DummyVecEnv([make_env])
     vec_env = VecNormalize.load(str(vecnorm_path), vec_env)

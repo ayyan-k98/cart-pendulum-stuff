@@ -209,7 +209,7 @@ def evaluate_state_grid(
 
     def make_dummy_env():
         env = CartPendulumEnv(c_theta=c_theta, c_x=c_x, rk4_substeps=eval_substeps)
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     dummy_env = DummyVecEnv([make_dummy_env])
     vec_env = VecNormalize.load(vecnorm_path, dummy_env)

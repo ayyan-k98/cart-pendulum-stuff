@@ -101,7 +101,7 @@ def load_checkpoint(model_path: str, vecnorm_path: Optional[str] = None, device:
     # Create environment with same normalization
     def make_env():
         env = CartPendulumEnv()
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     vec_env = DummyVecEnv([make_env])
     vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
@@ -202,7 +202,7 @@ def evaluate_multiple_episodes(
 
     # Create evaluation environment
     env = CartPendulumEnv(curriculum_phase=curriculum_phase)
-    env = TimeLimit(env, max_episode_steps=1000)
+    env = TimeLimit(env, max_episode_steps=2000)
 
     for ep in range(n_episodes):
         # Reset environment (random initial state based on curriculum)

@@ -388,25 +388,22 @@ class CartPendulumEnv(gym.Env):
         """
         Check if episode should terminate due to failure condition.
 
-        For cart-pendulum, episodes are managed by the TimeLimit wrapper
-        (typically 1000 steps). We do NOT hard-terminate on wall hits to allow
-        controllers to demonstrate recovery behavior.
+        Episodes terminate when the cart exceeds the rail limits at x = ±2.4m.
+        This hard termination prevents unrealistic behavior and matches the
+        consolidated study implementation.
 
-        Soft wall penalties in the reward function discourage wall hits during
-        training, but during evaluation we want to see full recovery capabilities.
+        The soft wall penalty (when enabled during training) provides a smooth
+        gradient starting at soft_wall_start (typically 1.8m) to discourage
+        the agent from hitting the hard limit.
 
         Args:
             state: Current state [θ, θ̇, x, ẋ]
 
         Returns:
-            False - no hard termination, rely on TimeLimit wrapper
+            True if |x| > 2.4m (cart hit wall), False otherwise
         """
-        # No hard termination - episodes end only via TimeLimit wrapper
-        # This allows:
-        # 1. RL agents to demonstrate recovery after wall hits
-        # 2. Classical controllers to show robustness
-        # 3. Full trajectory analysis without premature cutoffs
-        return False
+        x = state[2]
+        return abs(x) > 2.4
 
     def reset(
         self,

@@ -65,7 +65,7 @@ try:
     register(
         id='CartPendulum-v0',
         entry_point='src.environment:CartPendulumEnv',
-        max_episode_steps=1000,
+        max_episode_steps=2000,
     )
 except Exception:
     # Registration may fail in some contexts, that's ok

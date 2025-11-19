@@ -27,7 +27,7 @@ from .utils import state_to_obs, normalize_obs_from_state, compute_angle_from_ob
 
 def make_eval_env(
     env_kwargs: dict,
-    max_steps: int = 1000,
+    max_steps: int = 2000,
     seed: Optional[int] = None
 ) -> gym.Env:
     """
@@ -35,7 +35,7 @@ def make_eval_env(
 
     Args:
         env_kwargs: Arguments for CartPendulumEnv
-        max_steps: Maximum episode steps
+        max_steps: Maximum episode steps (default: 2000 = 40 seconds at 50Hz)
         seed: Random seed
 
     Returns:
@@ -472,7 +472,7 @@ def compare_controllers(
     # Load model and VecNormalize
     def make_dummy_env():
         env = CartPendulumEnv(c_theta=c_theta, c_x=c_x, rk4_substeps=eval_substeps)
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     dummy_env = DummyVecEnv([make_dummy_env])
     vec_env = VecNormalize.load(vecnorm_path, dummy_env)

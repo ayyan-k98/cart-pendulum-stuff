@@ -46,7 +46,7 @@ def load_checkpoint_simple(model_path: str, vecnorm_path: str = None):
     # Create environment with normalization
     def make_env():
         env = CartPendulumEnv()
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     vec_env = DummyVecEnv([make_env])
     vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
@@ -168,7 +168,7 @@ def example_4_custom_environment():
                 'x': 0.2,      # Care less about position
             }
         )
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     vec_env = DummyVecEnv([make_custom_env])
 
