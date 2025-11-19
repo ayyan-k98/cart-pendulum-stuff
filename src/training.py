@@ -27,7 +27,8 @@ from gymnasium.wrappers import TimeLimit
 from stable_baselines3 import SAC
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import VecNormalize, SubprocVecEnv, DummyVecEnv
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
+from stable_baselines3.common.logger import configure
 
 from .environment import CartPendulumEnv
 from .utils import check_device_available, ensure_directory_exists
@@ -193,6 +194,12 @@ def train_sac(
 
         if verbose:
             print(f"Training Phase 1 for {p1_steps:,} steps...")
+            print(f"TensorBoard logs: {p1_out_dir}/logs/")
+
+        # Configure TensorBoard logging
+        tb_log_path = os.path.join(p1_out_dir, "logs")
+        ensure_directory_exists(tb_log_path)
+        sac_p1.set_logger(configure(tb_log_path, ["tensorboard", "stdout"]))
 
         callback_p1 = TextProgressCallback(p1_steps, update_every=10_000, name="Phase1")
         sac_p1.learn(total_timesteps=p1_steps, callback=callback_p1, progress_bar=False)
@@ -282,6 +289,12 @@ def train_sac(
 
     if verbose:
         print(f"Training Phase 2 for {total_steps:,} steps...")
+        print(f"TensorBoard logs: {p2_out_dir}/logs/")
+
+    # Configure TensorBoard logging
+    tb_log_path = os.path.join(p2_out_dir, "logs")
+    ensure_directory_exists(tb_log_path)
+    sac_p2.set_logger(configure(tb_log_path, ["tensorboard", "stdout"]))
 
     callback_p2 = TextProgressCallback(total_steps, update_every=20_000, name="Phase2")
 
@@ -426,6 +439,12 @@ def finetune_sac(
 
     if verbose:
         print(f"Fine-tuning for {total_steps:,} additional steps...")
+        print(f"TensorBoard logs: {out_dir}/logs/")
+
+    # Configure TensorBoard logging
+    tb_log_path = os.path.join(out_dir, "logs")
+    ensure_directory_exists(tb_log_path)
+    model.set_logger(configure(tb_log_path, ["tensorboard", "stdout"]))
 
     callback = TextProgressCallback(total_steps, update_every=20_000, name="Finetune")
 
