@@ -65,8 +65,9 @@ class CartPendulumEnv(gym.Env):
         Observation: Box([-inf, inf], shape=(5,)) - [sin(θ), cos(θ), θ̇, x, ẋ]
 
     Termination Conditions:
-        - |x| > 2.4 (cart hits rail limit) - configurable with soft walls
-        - Episode timeout (handled by TimeLimit wrapper)
+        - No hard termination on cart position
+        - Episodes end via TimeLimit wrapper (typically 1000 steps)
+        - Allows controllers to demonstrate recovery from wall hits
 
     Reward Function:
         Designed to encourage upright stabilization with minimal cart deviation:
@@ -135,8 +136,9 @@ class CartPendulumEnv(gym.Env):
                 - Default 1.8m (rail limit is 2.4m)
 
             soft_wall_k: Soft wall penalty coefficient
-                - 0.0 = hard termination at rail limit
+                - 0.0 = no penalty for approaching walls (evaluation mode)
                 - >0.0 = smooth penalty that increases as cart approaches limit
+                - Used during training to discourage wall hits
 
             du_weight: Action smoothness penalty weight
                 - Penalizes |u_t - u_{t-1}| to encourage smooth control
@@ -386,25 +388,24 @@ class CartPendulumEnv(gym.Env):
         """
         Check if episode should terminate due to failure condition.
 
-        Termination occurs when cart hits rail limits (|x| > 2.4).
-        With soft walls (soft_wall_k > 0), termination is delayed to allow
-        learning from near-failure states.
+        For cart-pendulum, episodes are managed by the TimeLimit wrapper
+        (typically 1000 steps). We do NOT hard-terminate on wall hits to allow
+        controllers to demonstrate recovery behavior.
+
+        Soft wall penalties in the reward function discourage wall hits during
+        training, but during evaluation we want to see full recovery capabilities.
 
         Args:
             state: Current state [θ, θ̇, x, ẋ]
 
         Returns:
-            True if episode should terminate
+            False - no hard termination, rely on TimeLimit wrapper
         """
-        x = state[2]
-
-        # Hard termination at rail limits (unless soft walls are very strong)
-        if abs(x) > 2.4:
-            # With strong soft walls, be more lenient
-            if self.soft_wall_k > 0.5:
-                return abs(x) > 2.5
-            return True
-
+        # No hard termination - episodes end only via TimeLimit wrapper
+        # This allows:
+        # 1. RL agents to demonstrate recovery after wall hits
+        # 2. Classical controllers to show robustness
+        # 3. Full trajectory analysis without premature cutoffs
         return False
 
     def reset(
