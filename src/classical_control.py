@@ -89,8 +89,9 @@ class TrajectoryPlanner:
                 - Actions are clipped to [-umax, umax]
 
             c_theta: Angular friction coefficient (N·m·s)
-                - Models pendulum damping: τ_friction = -c_theta * θ̇
-                - Should match environment friction for accurate tracking
+                - Used ONLY in prediction for state extrapolation
+                - NOT used in feedforward planning (assumes frictionless)
+                - Tests robustness: planner ignores friction, feedback compensates
                 - Default: 0.0 (no friction)
 
             prediction_time: Planning delay compensation (seconds)
@@ -238,7 +239,7 @@ class TrajectoryPlanner:
         # Define the augmented dynamics: [state, costate]
         def bvpfcn(t, X):
             """
-            Augmented dynamics for BVP solver with friction.
+            Augmented dynamics for BVP solver (FRICTIONLESS).
 
             State: X = [θ, θ̇, x, ẋ, λ_θ, λ_{θ̇}, λ_x, λ_{ẋ}]
 
@@ -246,28 +247,30 @@ class TrajectoryPlanner:
                 State eqns: ẋ = ∂H/∂λ = f(x, u*)
                 Costate eqns: λ̇ = -∂H/∂x
                 Control: u* = -λ_{ẋ} + λ_{θ̇}·cos(θ)  [from ∂H/∂u = 0]
+
+            NOTE: Friction is IGNORED in feedforward planning to test robustness.
+                  Feedback (LQR) must compensate for model mismatch.
             """
             θ, θdot, x, xdot, λθ, λθdot, λx, λxdot = X
 
             # Optimal control from costate
             u = -λxdot + λθdot * np.cos(θ)
 
-            # State dynamics (normalized, with friction)
+            # State dynamics (normalized, FRICTIONLESS)
             dX = np.zeros_like(X)
             dX[0, :] = θdot
-            dX[1, :] = -np.sin(θ) - 2.0 * self.c_theta * θdot - u * np.cos(θ)  # Added friction
+            dX[1, :] = -np.sin(θ) - u * np.cos(θ)  # No friction term
             dX[2, :] = xdot
             dX[3, :] = u
 
-            # Costate dynamics: λ̇ = -∂H/∂x
-            # With friction: ∂f_θdot/∂θdot = -2*c_theta
+            # Costate dynamics: λ̇ = -∂H/∂x (frictionless)
             # ∂H/∂θ = -λ_{θ̇}·(cos(θ) - u·sin(θ))
-            # ∂H/∂{θ̇} = -λ_θ - λ_{θ̇}·(-2*c_theta) = -λ_θ + 2*c_theta*λ_{θ̇}
+            # ∂H/∂{θ̇} = -λ_θ
             # ∂H/∂x = 0 (no direct x dependence in dynamics)
             # ∂H/∂{ẋ} = -λ_x
             costate = np.vstack([
                 λθdot * (np.cos(θ) - u * np.sin(θ)),  # dλ_θ/dt
-                -λθ + 2.0 * self.c_theta * λθdot,      # dλ_{θ̇}/dt (with friction term)
+                -λθ,                                     # dλ_{θ̇}/dt (no friction term)
                 np.zeros_like(λx),                       # dλ_x/dt
                 -λx                                      # dλ_{ẋ}/dt
             ])
@@ -304,9 +307,12 @@ class TrajectoryPlanner:
         # Linearize around the optimal trajectory
         def A(t):
             """
-            State matrix A(t) from linearization around trajectory with friction.
+            State matrix A(t) from linearization around trajectory (FRICTIONLESS).
 
             ∂f/∂x evaluated at x*(t), u*(t)
+
+            NOTE: Linearization assumes frictionless dynamics (matching the BVP).
+                  LQR feedback will compensate for actual friction in real system.
             """
             θt = self.FFsol(t)[0]
             _, _, _, _, _, λθdot, _, λxdot = self.FFsol(t)
@@ -314,7 +320,7 @@ class TrajectoryPlanner:
 
             return np.array([
                 [0, 1, 0, 0],
-                [-np.cos(θt) + u_ff * np.sin(θt), -2.0 * self.c_theta, 0, 0],  # Added friction term
+                [-np.cos(θt) + u_ff * np.sin(θt), 0, 0, 0],  # No friction term
                 [0, 0, 0, 1],
                 [0, 0, 0, 0]
             ])
