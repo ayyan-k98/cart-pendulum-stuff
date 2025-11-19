@@ -185,7 +185,7 @@ def train_sac(
             gradient_steps=64,
             learning_starts=10_000,
             ent_coef='auto_0.1',
-            policy_kwargs=dict(net_arch=[256, 256]),
+            policy_kwargs=dict(net_arch=[256, 256], use_sde=False),
             verbose=0,
             device=device,
             seed=seed
@@ -249,7 +249,7 @@ def train_sac(
         train_freq=(1, "step"),
         gradient_steps=gradient_steps,
         ent_coef='auto_0.1',
-        policy_kwargs=dict(net_arch=[256, 256]),
+        policy_kwargs=dict(net_arch=[256, 256], use_sde=False),
         verbose=0,
         device=device,
         seed=seed
