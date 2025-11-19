@@ -276,13 +276,22 @@ def rollout_rl_timed(
         done = terminated or truncated
         t += env.dt
 
-    # Compute timing statistics
-    timing_stats = {
-        'inference_time_mean_ms': float(np.mean(inference_times)),
-        'inference_time_std_ms': float(np.std(inference_times)),
-        'inference_time_max_ms': float(np.max(inference_times)),
-        'per_step_times': inference_times
-    }
+    # Compute timing statistics (handle edge case of empty list)
+    if len(inference_times) > 0:
+        timing_stats = {
+            'inference_time_mean_ms': float(np.mean(inference_times)),
+            'inference_time_std_ms': float(np.std(inference_times)),
+            'inference_time_max_ms': float(np.max(inference_times)),
+            'per_step_times': inference_times
+        }
+    else:
+        # Episode terminated immediately - no inference performed
+        timing_stats = {
+            'inference_time_mean_ms': 0.0,
+            'inference_time_std_ms': 0.0,
+            'inference_time_max_ms': 0.0,
+            'per_step_times': []
+        }
 
     return pd.DataFrame(history), timing_stats
 
