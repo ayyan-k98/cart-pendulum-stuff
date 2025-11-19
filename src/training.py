@@ -199,7 +199,7 @@ def train_sac(
         # Configure TensorBoard logging
         tb_log_path = os.path.join(p1_out_dir, "logs")
         ensure_directory_exists(tb_log_path)
-        sac_p1.set_logger(configure(tb_log_path, ["tensorboard", "stdout"]))
+        sac_p1.set_logger(configure(tb_log_path, ["tensorboard"]))
 
         callback_p1 = TextProgressCallback(p1_steps, update_every=10_000, name="Phase1")
         sac_p1.learn(total_timesteps=p1_steps, callback=callback_p1, progress_bar=False)
@@ -294,7 +294,7 @@ def train_sac(
     # Configure TensorBoard logging
     tb_log_path = os.path.join(p2_out_dir, "logs")
     ensure_directory_exists(tb_log_path)
-    sac_p2.set_logger(configure(tb_log_path, ["tensorboard", "stdout"]))
+    sac_p2.set_logger(configure(tb_log_path, ["tensorboard"]))
 
     callback_p2 = TextProgressCallback(total_steps, update_every=20_000, name="Phase2")
 
@@ -444,7 +444,7 @@ def finetune_sac(
     # Configure TensorBoard logging
     tb_log_path = os.path.join(out_dir, "logs")
     ensure_directory_exists(tb_log_path)
-    model.set_logger(configure(tb_log_path, ["tensorboard", "stdout"]))
+    model.set_logger(configure(tb_log_path, ["tensorboard"]))
 
     callback = TextProgressCallback(total_steps, update_every=20_000, name="Finetune")
 
