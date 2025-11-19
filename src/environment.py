@@ -106,10 +106,10 @@ class CartPendulumEnv(gym.Env):
         rk4_substeps: int = 10,
         soft_wall_start: float = 1.8,
         soft_wall_k: float = 0.0,
-        du_weight: float = 1e-4,
+        du_weight: float = 1e-3,
         seed: Optional[int] = None,
         stabilization_prob: float = 0.0,
-        reward_weights: Optional[Dict[str, float]] = None,  # DEPRECATED: Kept for backwards compatibility
+        reward_weights: Optional[Dict[str, float]] = None,
         render_mode: Optional[str] = None,
     ):
         """
@@ -141,9 +141,9 @@ class CartPendulumEnv(gym.Env):
                 - Used during training to discourage wall hits
 
             du_weight: Action smoothness penalty weight
-                - Penalizes |u_t - u_{t-1}|² to encourage smooth control
+                - Penalizes |u_t - u_{t-1}| to encourage smooth control
                 - Important for real-world actuators
-                - Default: 1e-4 (matches consolidated study implementation)
+                - Default: 1e-3 (tuned for smooth swing-up)
 
             seed: Random seed for reproducibility
 
@@ -151,12 +151,13 @@ class CartPendulumEnv(gym.Env):
                 - 0.0 = always random (full swingup)
                 - 1.0 = always near upright (stabilization only)
 
-            reward_weights: DEPRECATED - Kept for backwards compatibility only
-                - Reward function is now hardcoded to match consolidated study
-                - Uses: cos(θ) - 1, position penalty -0.15·x², +10.0 success bonus
-                - This parameter is ignored
-
-            render_mode: Rendering mode ('human' for pygame window, 'rgb_array' for frames)
+            reward_weights: Optional dictionary to customize reward function weights
+                - 'theta': Weight for angle error (default: 1.0)
+                - 'theta_dot': Weight for angular velocity (default: 0.05)
+                - 'x': Weight for position error (default: 0.25)
+                - 'x_dot': Weight for linear velocity (default: 0.02)
+                - 'u': Weight for control effort (default: 0.01)
+                If not provided, uses default weights above (tuned for robust swing-up)
         """
         super().__init__()
 
@@ -181,9 +182,17 @@ class CartPendulumEnv(gym.Env):
         self.soft_wall_k = float(soft_wall_k)
         self.du_weight = float(du_weight)
 
-        # DEPRECATED: reward_weights is no longer used (reward function is hardcoded)
-        # Kept for backwards compatibility only
-        self.reward_weights = reward_weights if reward_weights is not None else {}
+        # Reward weights (tuned for robust swing-up and smooth control)
+        self.reward_weights = {
+            'theta': 1.0,          # Angle cost (prioritize upright)
+            'theta_dot': 0.05,     # Angular velocity cost (moderate damping)
+            'x': 0.25,             # Position cost (keep cart centered)
+            'x_dot': 0.02,         # Linear velocity cost (cart damping)
+            'u': 0.01,             # Control effort cost (penalize large forces)
+        }
+        # Override with user-provided weights
+        if reward_weights is not None:
+            self.reward_weights.update(reward_weights)
 
         # Gymnasium spaces
         # Action: force applied to cart
@@ -334,54 +343,44 @@ class CartPendulumEnv(gym.Env):
         """
         Compute reward for current state and action.
 
-        Reward components (matching consolidated study implementation):
-            1. Angle cost: cos(θ) - 1 (0 at upright, -2 at inverted)
+        Reward components (with tuned default weights):
+            1. Angle cost: -1.0·θ² (encourage upright, θ=0)
             2. Angular velocity cost: -0.05·θ̇² (moderate damping, avoid overshoot)
-            3. Position cost: -0.15·x² (keep cart centered)
-            4. Linear velocity cost: (implicit via smoothness)
+            3. Position cost: -0.25·x² (keep cart centered)
+            4. Linear velocity cost: -0.02·ẋ² (cart motion damping)
             5. Control cost: -0.01·u² (penalize large control efforts)
-            6. Action smoothness: -1e-4·(u - u_prev)² (smooth, realistic control)
+            6. Action smoothness: -1e-3·(u - u_prev)² (smooth, realistic control)
             7. Soft wall penalty: -soft_wall_k·overshoot² (prevent rail violations)
-            8. Success bonus: +10.0 if |θ| < 0.2 and |x| < 0.2 (encourage stability)
 
-        CRITICAL: Sparse failure penalty of -500.0 is added in step() when terminated=True
+        These weights are tuned for robust swing-up with smooth control suitable
+        for real hardware deployment.
 
         Args:
             state: Current state [θ, θ̇, x, ẋ]
             u: Control force (N)
 
         Returns:
-            Scalar reward (without termination penalty)
+            Scalar reward
         """
         theta, theta_dot, x, x_dot = state
 
-        # 1. Angle cost: cos(θ) - 1 (matches consolidated study)
-        #    This is 0 at upright (θ=0) and -2 at inverted (θ=±π)
-        reward = math.cos(theta) - 1.0
+        # Basic state costs (using configurable weights)
+        reward = 0.0
+        reward -= self.reward_weights['theta'] * theta**2  # Angle cost
+        reward -= self.reward_weights['theta_dot'] * theta_dot**2  # Angular velocity cost
+        reward -= self.reward_weights['x'] * x**2  # Position cost
+        reward -= self.reward_weights['x_dot'] * x_dot**2  # Linear velocity cost
+        reward -= self.reward_weights['u'] * u**2  # Control effort cost
 
-        # 2. Angular velocity damping
-        reward -= 0.05 * theta_dot**2
-
-        # 3. Position cost (keep cart centered)
-        reward -= 0.15 * x**2
-
-        # 4. Control effort cost
-        reward -= 0.01 * u**2
-
-        # 5. Action smoothness penalty
+        # Action smoothness penalty
         du = u - self._last_u
-        reward -= 1e-4 * du**2
+        reward -= self.du_weight * du**2
 
-        # 6. Soft wall penalty (training only, disabled during eval)
+        # Soft wall penalty (exponential growth as cart approaches limits)
         if self.soft_wall_k > 0.0:
             if abs(x) > self.soft_wall_start:
                 overshoot = abs(x) - self.soft_wall_start
                 reward -= self.soft_wall_k * overshoot**2
-
-        # 7. Success bonus: Large positive reward for being in stable region
-        #    This is the PRIMARY positive signal that encourages survival
-        if abs(theta) < 0.2 and abs(x) < 0.2:
-            reward += 10.0
 
         return float(reward)
 
@@ -481,12 +480,10 @@ class CartPendulumEnv(gym.Env):
         # Check termination
         terminated = self._is_terminated(self.state)
 
-        # CRITICAL: Add sparse failure penalty for wall hits
-        # This makes failing expensive and encourages the agent to survive
-        # Without this, the agent learns that "failing fast is cheap"
         if terminated:
-            reward -= 500.0  # Large penalty for hitting the wall
-
+          reward = reward -500
+        else:
+          reward = reward + 10
         # Update for action smoothness calculation
         self._last_u = u
 
