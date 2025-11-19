@@ -89,6 +89,10 @@ def parse_args(args=None):
         '--no-two-phase', action='store_true',
         help='Disable two-phase curriculum learning'
     )
+    parser.add_argument(
+        '--no-friction', action='store_true',
+        help='Disable friction randomization (train in frictionless environment)'
+    )
 
     # Fine-tuning
     parser.add_argument(
@@ -142,6 +146,7 @@ def main(args=None):
     print(f"Device: {args.device}")
     print(f"Output directory: {args.out_dir}")
     print(f"Two-phase curriculum: {not args.no_two_phase}")
+    print(f"Friction modeling: {not args.no_friction}")
     print("=" * 80)
 
     if args.finetune:
@@ -180,6 +185,7 @@ def main(args=None):
             soft_wall_k=args.soft_wall_k,
             du_weight=args.du_weight,
             two_phase=not args.no_two_phase,
+            train_with_friction=not args.no_friction,
             verbose=not args.quiet
         )
 

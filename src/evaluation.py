@@ -481,8 +481,9 @@ def compare_controllers(
 
     model = SAC.load(model_path, device='cpu')
 
-    # Create classical controller
-    planner = TrajectoryPlanner(umax=10.0)
+    # Create classical controller with friction modeling
+    # Use c_theta for prediction and dynamics to match evaluation environment
+    planner = TrajectoryPlanner(umax=10.0, c_theta=c_theta)
 
     rl_trajectories = []
     classical_trajectories = []

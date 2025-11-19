@@ -84,6 +84,7 @@ def train_sac(
     soft_wall_k: float = 0.5,
     du_weight: float = 1e-3,
     two_phase: bool = True,
+    train_with_friction: bool = True,
     verbose: bool = True
 ) -> Tuple[str, str]:
     """
@@ -104,6 +105,10 @@ def train_sac(
         soft_wall_k: Soft wall penalty coefficient
         du_weight: Action smoothness penalty weight
         two_phase: If True, run phase 1 (stabilization) before phase 2
+        train_with_friction: If True, use friction randomization during training
+            - True: c_theta ∈ [0.0, 0.03], c_x ∈ [0.0, 0.05] (robust to friction)
+            - False: c_theta = 0.0, c_x = 0.0 (frictionless training)
+            - Allows comparison of models trained with/without friction modeling
         verbose: Print progress messages
 
     Returns:
@@ -114,10 +119,19 @@ def train_sac(
         RuntimeError: If training fails
 
     Example:
+        >>> # Train with friction (default)
         >>> model_path, vecnorm_path = train_sac(
         ...     total_steps=500_000,
         ...     n_envs=8,
-        ...     device='cuda'
+        ...     device='cuda',
+        ...     train_with_friction=True
+        ... )
+        >>> # Train without friction
+        >>> model_path, vecnorm_path = train_sac(
+        ...     total_steps=500_000,
+        ...     n_envs=8,
+        ...     device='cuda',
+        ...     train_with_friction=False
         ... )
     """
     # Validate inputs
@@ -141,6 +155,14 @@ def train_sac(
         method = "spawn" if "ipykernel" in sys.modules else "fork"
         start_method = {"start_method": method}
 
+    # Configure friction based on train_with_friction flag
+    # Phase 1: Light friction randomization
+    c_theta_p1 = (0.0, 0.03) if train_with_friction else 0.0
+    c_x_p1 = (0.0, 0.05) if train_with_friction else 0.0
+    # Phase 2: Heavier friction randomization
+    c_theta_p2 = (0.0, 0.05) if train_with_friction else 0.0
+    c_x_p2 = (0.0, 0.08) if train_with_friction else 0.0
+
     # Phase 1: Stabilization (optional but recommended)
     if two_phase:
         if verbose:
@@ -156,8 +178,8 @@ def train_sac(
             env = CartPendulumEnv(
                 curriculum_phase="stabilization",
                 rk4_substeps=train_substeps,
-                c_theta=(0.0, 0.03),  # Light friction randomization
-                c_x=(0.0, 0.05),
+                c_theta=c_theta_p1,  # Friction randomization (or zero)
+                c_x=c_x_p1,
                 soft_wall_k=soft_wall_k,
                 du_weight=du_weight
             )
@@ -230,8 +252,8 @@ def train_sac(
         env = CartPendulumEnv(
             curriculum_phase="swingup",
             rk4_substeps=train_substeps,
-            c_theta=(0.0, 0.05),  # More randomization
-            c_x=(0.0, 0.08),
+            c_theta=c_theta_p2,  # Heavier friction randomization (or zero)
+            c_x=c_x_p2,
             soft_wall_k=soft_wall_k,
             du_weight=du_weight
         )

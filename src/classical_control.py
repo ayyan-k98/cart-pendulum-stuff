@@ -69,7 +69,9 @@ class TrajectoryPlanner:
         self,
         Q: Optional[np.ndarray] = None,
         R: Optional[np.ndarray] = None,
-        umax: float = 10.0
+        umax: float = 10.0,
+        c_theta: float = 0.0,
+        prediction_time: float = 0.0
     ):
         """
         Initialize the trajectory planner.
@@ -85,6 +87,16 @@ class TrajectoryPlanner:
 
             umax: Maximum absolute control force (N)
                 - Actions are clipped to [-umax, umax]
+
+            c_theta: Angular friction coefficient (N·m·s)
+                - Models pendulum damping: τ_friction = -c_theta * θ̇
+                - Should match environment friction for accurate tracking
+                - Default: 0.0 (no friction)
+
+            prediction_time: Planning delay compensation (seconds)
+                - Predicts future state after this time delay
+                - Compensates for BVP solver computation time
+                - Default: 0.0 (no prediction)
         """
         if Q is None:
             Q = np.diag([10.0, 4.0, 10.0, 2.0])
@@ -94,20 +106,57 @@ class TrajectoryPlanner:
         self.Q = Q
         self.R = R
         self.umax = float(umax)
+        self.c_theta = float(c_theta)
+        self.prediction_time = float(prediction_time)
         self.plan = None
         self.FFsol = None
         self.Ssol = None
         self.Kend = None
         self.τ = None  # Trajectory duration
+        self.plan_start_time = 0.0  # Time when planning started
+
+    def _predict_state(self, s: np.ndarray, dt: float) -> np.ndarray:
+        """
+        Predict future state after time dt with zero control.
+
+        Compensates for planning computation time by forward-simulating
+        the system dynamics with u=0.
+
+        Args:
+            s: Current state [θ, θ̇, x, ẋ]
+            dt: Prediction time horizon (seconds)
+
+        Returns:
+            Predicted state after dt seconds
+        """
+        if dt <= 0.0:
+            return s
+
+        def dynamics(t, state):
+            """Dynamics with zero control and friction."""
+            θ, θdot, x, xdot = state
+            return np.array([
+                θdot,
+                -np.sin(θ) - 2.0 * self.c_theta * θdot,  # Pendulum with friction
+                xdot,
+                0.0  # Cart: no control, no friction
+            ])
+
+        result = solve_ivp(dynamics, (0, dt), s, dense_output=True)
+        return result.sol(dt)
 
     def plan_from(self, s: np.ndarray) -> bool:
         """
         Plan an optimal trajectory from given initial state to upright.
 
-        Tries multiple trajectory durations [3.5, 4.0, 5.0] seconds until one succeeds.
-        For each duration, solves the two-point BVP:
-            - Start: s (given initial state)
-            - End: [0, 0, 0, 0] (upright and centered)
+        Features:
+        1. State prediction: Compensates for planning time by predicting future state
+        2. Direction selection: Tries both CW and CCW swingup, picks lower cost
+        3. Multiple durations: Tries [3.5, 4.0, 5.0] seconds until one succeeds
+
+        For each configuration, solves the two-point BVP:
+            - Start: s_pred (predicted initial state)
+            - End: target angle (either CW or CCW swingup to upright)
 
         Args:
             s: Initial state [θ, θ̇, x, ẋ]
@@ -115,18 +164,56 @@ class TrajectoryPlanner:
         Returns:
             True if planning succeeded, False otherwise
         """
-        # Try multiple durations (shorter is better, but may be infeasible)
-        for duration in [3.5, 4.0, 5.0]:
-            if self._plan_maneuver(s, duration) is not None:
-                self.plan = True
-                return True
+        # Predict future state to compensate for planning delay
+        s_pred = self._predict_state(s, self.prediction_time)
+
+        # Determine target angles for CW and CCW swingup
+        # Convention: θ=0 is upright, so we swing to nearest multiple of 2π
+        θ0 = s_pred[0]
+
+        # CCW swingup: go to nearest upright position counter-clockwise
+        θ_target_ccw = 2.0 * np.pi * np.ceil(θ0 / (2.0 * np.pi) + 0.5) - np.pi
+        # Simplify: round to nearest 2π, then subtract π (since we measure from top)
+        # Actually for θ=0 at top: CCW means increasing θ to next 2πk
+        θ_target_ccw = 2.0 * np.pi * np.ceil(θ0 / (2.0 * np.pi))
+
+        # CW swingup: go to nearest upright position clockwise
+        θ_target_cw = θ_target_ccw - 2.0 * np.pi
+
+        best_cost = float('inf')
+        best_plan = None
+
+        # Try both directions with multiple durations
+        for θ_target in [θ_target_cw, θ_target_ccw]:
+            for duration in [3.5, 4.0, 5.0]:
+                cost = self._plan_maneuver(s_pred, θ_target, duration)
+                if cost is not None and cost < best_cost:
+                    best_cost = cost
+                    best_plan = {
+                        'θ_target': θ_target,
+                        'duration': duration,
+                        'FFsol': self.FFsol,
+                        'Ssol': self.Ssol,
+                        'Kend': self.Kend,
+                        'τ': self.τ
+                    }
+
+        if best_plan is not None:
+            # Restore best plan
+            self.FFsol = best_plan['FFsol']
+            self.Ssol = best_plan['Ssol']
+            self.Kend = best_plan['Kend']
+            self.τ = best_plan['τ']
+            self.xstate_init = s_pred
+            self.plan = True
+            return True
 
         self.plan = False
         return False
 
-    def _plan_maneuver(self, s: np.ndarray, duration: float) -> Optional[float]:
+    def _plan_maneuver(self, s: np.ndarray, θ_target: float, duration: float) -> Optional[float]:
         """
-        Internal method to plan a maneuver with specific duration.
+        Internal method to plan a maneuver with specific duration and target angle.
 
         Uses Pontryagin's Maximum Principle to formulate as BVP:
             - State equations: ẋ = f(x, u)
@@ -138,19 +225,20 @@ class TrajectoryPlanner:
 
         Args:
             s: Initial state [θ, θ̇, x, ẋ]
+            θ_target: Target angle (for CW vs CCW swingup)
             duration: Trajectory duration (seconds)
 
         Returns:
-            Initial control if successful, None if BVP fails
+            Trajectory cost (∫u² dt) if successful, None if BVP fails
         """
         self.τ = float(duration)
         self.xstate_init = s
-        self.xstate_end = np.zeros(4)  # Target: upright and centered
+        self.xstate_end = np.array([θ_target, 0.0, 0.0, 0.0])  # Target: specified angle, centered
 
         # Define the augmented dynamics: [state, costate]
         def bvpfcn(t, X):
             """
-            Augmented dynamics for BVP solver.
+            Augmented dynamics for BVP solver with friction.
 
             State: X = [θ, θ̇, x, ẋ, λ_θ, λ_{θ̇}, λ_x, λ_{ẋ}]
 
@@ -164,21 +252,22 @@ class TrajectoryPlanner:
             # Optimal control from costate
             u = -λxdot + λθdot * np.cos(θ)
 
-            # State dynamics (normalized)
+            # State dynamics (normalized, with friction)
             dX = np.zeros_like(X)
             dX[0, :] = θdot
-            dX[1, :] = -np.sin(θ) - u * np.cos(θ)
+            dX[1, :] = -np.sin(θ) - 2.0 * self.c_theta * θdot - u * np.cos(θ)  # Added friction
             dX[2, :] = xdot
             dX[3, :] = u
 
             # Costate dynamics: λ̇ = -∂H/∂x
+            # With friction: ∂f_θdot/∂θdot = -2*c_theta
             # ∂H/∂θ = -λ_{θ̇}·(cos(θ) - u·sin(θ))
-            # ∂H/∂{θ̇} = -λ_θ
+            # ∂H/∂{θ̇} = -λ_θ - λ_{θ̇}·(-2*c_theta) = -λ_θ + 2*c_theta*λ_{θ̇}
             # ∂H/∂x = 0 (no direct x dependence in dynamics)
             # ∂H/∂{ẋ} = -λ_x
             costate = np.vstack([
                 λθdot * (np.cos(θ) - u * np.sin(θ)),  # dλ_θ/dt
-                -λθ,                                     # dλ_{θ̇}/dt
+                -λθ + 2.0 * self.c_theta * λθdot,      # dλ_{θ̇}/dt (with friction term)
                 np.zeros_like(λx),                       # dλ_x/dt
                 -λx                                      # dλ_{ẋ}/dt
             ])
@@ -204,11 +293,18 @@ class TrajectoryPlanner:
 
         self.FFsol = res.sol
 
+        # Compute trajectory cost for direction selection
+        # Cost = ∫ u² dt (integrated control effort)
+        n_samples = 100
+        t_samples = np.linspace(0, self.τ, n_samples)
+        u_samples = np.array([self._uff(t) for t in t_samples])
+        trajectory_cost = 0.5 * np.sum(u_samples**2) * (self.τ / n_samples)
+
         # Now compute time-varying LQR gains via Riccati equation
         # Linearize around the optimal trajectory
         def A(t):
             """
-            State matrix A(t) from linearization around trajectory.
+            State matrix A(t) from linearization around trajectory with friction.
 
             ∂f/∂x evaluated at x*(t), u*(t)
             """
@@ -218,7 +314,7 @@ class TrajectoryPlanner:
 
             return np.array([
                 [0, 1, 0, 0],
-                [-np.cos(θt) + u_ff * np.sin(θt), 0, 0, 0],
+                [-np.cos(θt) + u_ff * np.sin(θt), -2.0 * self.c_theta, 0, 0],  # Added friction term
                 [0, 0, 0, 1],
                 [0, 0, 0, 0]
             ])
@@ -256,7 +352,7 @@ class TrajectoryPlanner:
             atol=1e-8
         ).sol
 
-        return self._uff(0.0)
+        return trajectory_cost  # Return cost for direction selection
 
     def _uff(self, t: float) -> float:
         """
