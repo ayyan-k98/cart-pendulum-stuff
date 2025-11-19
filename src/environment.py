@@ -105,7 +105,7 @@ class CartPendulumEnv(gym.Env):
         rk4_substeps: int = 10,
         soft_wall_start: float = 1.8,
         soft_wall_k: float = 0.0,
-        du_weight: float = 1e-4,
+        du_weight: float = 1e-3,
         seed: Optional[int] = None,
         stabilization_prob: float = 0.0,
         reward_weights: Optional[Dict[str, float]] = None,
@@ -141,6 +141,7 @@ class CartPendulumEnv(gym.Env):
             du_weight: Action smoothness penalty weight
                 - Penalizes |u_t - u_{t-1}| to encourage smooth control
                 - Important for real-world actuators
+                - Default: 1e-3 (tuned for smooth swing-up)
 
             seed: Random seed for reproducibility
 
@@ -150,11 +151,11 @@ class CartPendulumEnv(gym.Env):
 
             reward_weights: Optional dictionary to customize reward function weights
                 - 'theta': Weight for angle error (default: 1.0)
-                - 'theta_dot': Weight for angular velocity (default: 0.1)
-                - 'x': Weight for position error (default: 0.5)
-                - 'x_dot': Weight for linear velocity (default: 0.01)
-                - 'u': Weight for control effort (default: 0.001)
-                If not provided, uses default weights above
+                - 'theta_dot': Weight for angular velocity (default: 0.05)
+                - 'x': Weight for position error (default: 0.25)
+                - 'x_dot': Weight for linear velocity (default: 0.02)
+                - 'u': Weight for control effort (default: 0.01)
+                If not provided, uses default weights above (tuned for robust swing-up)
         """
         super().__init__()
 
@@ -179,13 +180,13 @@ class CartPendulumEnv(gym.Env):
         self.soft_wall_k = float(soft_wall_k)
         self.du_weight = float(du_weight)
 
-        # Reward weights (tunable for experimentation)
+        # Reward weights (tuned for robust swing-up and smooth control)
         self.reward_weights = {
-            'theta': 1.0,          # Angle cost
-            'theta_dot': 0.1,      # Angular velocity cost
-            'x': 0.5,              # Position cost
-            'x_dot': 0.01,         # Linear velocity cost
-            'u': 0.001,            # Control effort cost
+            'theta': 1.0,          # Angle cost (prioritize upright)
+            'theta_dot': 0.05,     # Angular velocity cost (moderate damping)
+            'x': 0.25,             # Position cost (keep cart centered)
+            'x_dot': 0.02,         # Linear velocity cost (cart damping)
+            'u': 0.01,             # Control effort cost (penalize large forces)
         }
         # Override with user-provided weights
         if reward_weights is not None:
@@ -340,14 +341,17 @@ class CartPendulumEnv(gym.Env):
         """
         Compute reward for current state and action.
 
-        Reward components:
-            1. Angle cost: -θ² (encourage upright, θ=0)
-            2. Angular velocity cost: -0.1·θ̇² (encourage stillness)
-            3. Position cost: -0.5·x² (encourage center)
-            4. Linear velocity cost: -0.01·ẋ² (encourage stillness)
-            5. Control cost: -0.001·u² (minimize effort)
-            6. Action smoothness: -du_weight·(u - u_prev)² (smooth control)
-            7. Soft wall penalty: exponential penalty near rail limits
+        Reward components (with tuned default weights):
+            1. Angle cost: -1.0·θ² (encourage upright, θ=0)
+            2. Angular velocity cost: -0.05·θ̇² (moderate damping, avoid overshoot)
+            3. Position cost: -0.25·x² (keep cart centered)
+            4. Linear velocity cost: -0.02·ẋ² (cart motion damping)
+            5. Control cost: -0.01·u² (penalize large control efforts)
+            6. Action smoothness: -1e-3·(u - u_prev)² (smooth, realistic control)
+            7. Soft wall penalty: -soft_wall_k·overshoot² (prevent rail violations)
+
+        These weights are tuned for robust swing-up with smooth control suitable
+        for real hardware deployment.
 
         Args:
             state: Current state [θ, θ̇, x, ẋ]
