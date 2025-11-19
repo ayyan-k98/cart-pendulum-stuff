@@ -76,8 +76,8 @@ def train_sac(
     total_steps: int = 500_000,
     n_envs: int = 8,
     train_substeps: int = 6,
-    batch_size: int = 768,
-    gradient_steps: int = 3,
+    batch_size: int = 1024,
+    gradient_steps: int = 64,
     seed: int = 42,
     device: str = 'auto',
     out_dir: str = 'runs/sac_train',
@@ -97,8 +97,8 @@ def train_sac(
         total_steps: Total training timesteps for main (phase 2) training
         n_envs: Number of parallel environments
         train_substeps: RK4 integration substeps for training
-        batch_size: SAC batch size
-        gradient_steps: Number of gradient steps per environment step
+        batch_size: SAC batch size (default 1024 for stable updates)
+        gradient_steps: Number of gradient steps per update (default 64 for efficient learning)
         seed: Random seed for reproducibility
         device: 'cuda', 'cpu', or 'auto'
         out_dir: Output directory for models and logs
@@ -275,7 +275,7 @@ def train_sac(
         batch_size=batch_size,
         gamma=0.99,
         tau=0.005,
-        train_freq=(1, "step"),
+        train_freq=(64, "step"),  # Stable batching: collect 64 steps before update
         gradient_steps=gradient_steps,
         ent_coef='auto_0.1',
         policy_kwargs=dict(net_arch=[256, 256], use_sde=False),

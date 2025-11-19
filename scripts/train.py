@@ -52,12 +52,12 @@ def parse_args(args=None):
         help='RK4 integration substeps for training'
     )
     parser.add_argument(
-        '--batch-size', type=int, default=768,
-        help='SAC batch size'
+        '--batch-size', type=int, default=1024,
+        help='SAC batch size (stable default: 1024)'
     )
     parser.add_argument(
-        '--gradient-steps', type=int, default=3,
-        help='Gradient steps per environment step'
+        '--gradient-steps', type=int, default=64,
+        help='Gradient steps per update (stable default: 64)'
     )
     parser.add_argument(
         '--seed', type=int, default=42,
