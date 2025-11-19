@@ -1,0 +1,24 @@
+# Cart-Pendulum Control Requirements
+
+# Core dependencies
+gymnasium>=0.29.1
+stable-baselines3>=2.3.0
+torch>=2.2.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+scipy>=1.10.0
+tensorboard>=2.14.0  # For training metrics visualization
+
+# Optional but recommended
+jupyter>=1.0.0
+ipython>=8.0.0
+
+# For rendering (optional)
+# Real-time pygame rendering - install with: pip install gymnasium[classic-control]
+# Note: Matplotlib animations work without pygame
+pygame>=2.1.0  # For CartPendulumEnv with render_mode='human' or 'rgb_array'
+
+# For development
+pytest>=7.0.0  # For unit tests (future work)
+black>=23.0.0  # For code formatting (future work)
