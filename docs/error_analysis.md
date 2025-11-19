@@ -172,22 +172,37 @@ If cart somehow reaches x = ±3.0m, penalty = `0.5 * (3.0-1.8)^2 = 0.72`
 
 ---
 
-### 7. **Missing `theta_dot_dot` and `x_dot_dot` in Logged Trajectory**
+### 7. **Missing `theta_dot_dot` and `x_dot_dot` in Logged Trajectory** ✅ FIXED
 **File**: `src/evaluation.py`
 
-**Issue**: Trajectory DataFrames don't include accelerations, which could be useful for analysis
+**Issue**: Trajectory DataFrames didn't include velocities and accelerations
 
-**Current Output**:
+**Previous Output**:
 ```python
 history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
 ```
 
-**Missing**: `theta_dot`, `x_dot`, `theta_ddot`, `x_ddot`
+**Was Missing**: `theta_dot`, `x_dot`, `theta_ddot`, `x_ddot`
 
-**Severity**: LOW - Design choice, not an error
-**Likelihood**: N/A
+**Status**: ✅ **IMPLEMENTED**
 
-**Enhancement**: Could add full state logging for detailed analysis
+**New Output** (all rollout functions):
+```python
+history = {k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                             'theta_ddot', 'x_ddot', 'action', 'reward']}
+```
+
+**Implementation Details**:
+- All four rollout functions updated: `rollout_rl()`, `rollout_classical()`, `rollout_rl_timed()`, `rollout_classical_timed()`
+- Velocities logged from state: `state[1]` (theta_dot), `state[3]` (x_dot)
+- Accelerations computed from dynamics: `env._dyn(state, action)` returns `[theta_dot, theta_ddot, x_dot, x_ddot]`
+- Enables detailed analysis: energy, jerk, power, control smoothness
+
+**Benefits**:
+- Energy analysis: `E = 0.5*m*l^2*theta_dot^2 + mgl*cos(theta) + 0.5*M*x_dot^2`
+- Jerk calculation: `jerk = d(acceleration)/dt` for smoothness metrics
+- Power analysis: `P = u * x_dot`
+- Control derivatives: Can compute `du/dt` for smoothness analysis
 
 ---
 
@@ -363,7 +378,7 @@ But SAC's `tanh` activation already bounds outputs, and Gym action space is `Box
 6. Add NaN checks in environment step
 
 ### Low Priority:
-7. Log full state in trajectories (theta_dot, x_dot, accelerations)
+7. ✅ **Log full state in trajectories** (theta_dot, x_dot, accelerations) - COMPLETED
 8. Add more detailed error messages for common failure modes
 
 ---
@@ -385,10 +400,14 @@ But SAC's `tanh` activation already bounds outputs, and Gym action space is `Box
 ## 🎯 OVERALL ASSESSMENT
 
 **Code Quality**: High
-**Critical Bugs**: 1 (empty timing list)
+**Critical Bugs**: 1 (empty timing list) → ✅ **FIXED**
 **Medium Issues**: 3 (mostly user error prevention)
-**Low Priority**: 11 (edge cases, enhancements)
+**Low Priority**: 10 (edge cases) + 1 **IMPLEMENTED** (full state logging)
 
-**The implementation is fundamentally sound** with only one critical bug (easily fixed) and a few edge cases to handle.
+**The implementation is fundamentally sound** with the critical bug fixed and enhanced trajectory logging.
 
 **Main Risk**: User errors (wrong VecNormalize file, missing pygame) rather than algorithmic bugs.
+
+**Recent Improvements**:
+- ✅ Fixed empty timing list crash (Issue #1)
+- ✅ Implemented full state logging with accelerations (Issue #7)

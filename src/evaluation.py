@@ -88,7 +88,8 @@ def rollout_rl(
     obs_raw = state_to_obs(start_state)
     obs = vec_env.normalize_obs(np.array([obs_raw], dtype=np.float32))[0]
 
-    history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
+    history = {k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                                 'theta_ddot', 'x_ddot', 'action', 'reward']}
     t = 0.0
     done = False
 
@@ -105,9 +106,17 @@ def rollout_rl(
         # Get true state for logging
         state = env.get_state()
 
+        # Compute accelerations from dynamics
+        u = float(action[0])
+        state_derivative = env.unwrapped._dyn(state, u)  # [theta_dot, theta_ddot, x_dot, x_ddot]
+
         history['time'].append(t)
         history['theta'].append(state[0])
+        history['theta_dot'].append(state[1])
         history['x'].append(state[2])
+        history['x_dot'].append(state[3])
+        history['theta_ddot'].append(state_derivative[1])  # Angular acceleration
+        history['x_ddot'].append(state_derivative[3])      # Linear acceleration
         history['action'].append(action[0])
         history['reward'].append(reward)
 
@@ -170,9 +179,11 @@ def rollout_classical(
 
     if not success:
         # Planning failed - return empty trajectory
-        return pd.DataFrame({k: [] for k in ['time', 'theta', 'x', 'action', 'reward']})
+        return pd.DataFrame({k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                                               'theta_ddot', 'x_ddot', 'action', 'reward']})
 
-    history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
+    history = {k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                                 'theta_ddot', 'x_ddot', 'action', 'reward']}
     t = 0.0
     done = False
 
@@ -189,9 +200,16 @@ def rollout_classical(
         # Step environment
         obs, reward, terminated, truncated, info = env.step(np.array([action]))
 
+        # Compute accelerations from dynamics
+        state_derivative = env._dyn(state, action)  # [theta_dot, theta_ddot, x_dot, x_ddot]
+
         history['time'].append(t)
         history['theta'].append(state[0])
+        history['theta_dot'].append(state[1])
         history['x'].append(state[2])
+        history['x_dot'].append(state[3])
+        history['theta_ddot'].append(state_derivative[1])  # Angular acceleration
+        history['x_ddot'].append(state_derivative[3])      # Linear acceleration
         history['action'].append(action)
         history['reward'].append(reward)
 
@@ -249,7 +267,8 @@ def rollout_rl_timed(
     obs_raw = state_to_obs(start_state)
     obs = vec_env.normalize_obs(np.array([obs_raw], dtype=np.float32))[0]
 
-    history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
+    history = {k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                                 'theta_ddot', 'x_ddot', 'action', 'reward']}
     inference_times = []
     t = 0.0
     done = False
@@ -265,11 +284,18 @@ def rollout_rl_timed(
         obs_raw, reward, terminated, truncated, info = env.step(action)
         obs = vec_env.normalize_obs(np.array([obs_raw], dtype=np.float32))[0]
 
-        # Log state
+        # Log state and compute accelerations
         state = env.get_state()
+        u = float(action[0])
+        state_derivative = env.unwrapped._dyn(state, u)  # [theta_dot, theta_ddot, x_dot, x_ddot]
+
         history['time'].append(t)
         history['theta'].append(state[0])
+        history['theta_dot'].append(state[1])
         history['x'].append(state[2])
+        history['x_dot'].append(state[3])
+        history['theta_ddot'].append(state_derivative[1])  # Angular acceleration
+        history['x_ddot'].append(state_derivative[3])      # Linear acceleration
         history['action'].append(action[0])
         history['reward'].append(reward)
 
@@ -363,10 +389,12 @@ def rollout_classical_timed(
             'action_time_max_ms': 0.0,
             'per_step_times': []
         }
-        return pd.DataFrame({k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}), timing_stats
+        return pd.DataFrame({k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                                               'theta_ddot', 'x_ddot', 'action', 'reward']}), timing_stats
 
     # Planning succeeded - execute trajectory
-    history = {k: [] for k in ['time', 'theta', 'x', 'action', 'reward']}
+    history = {k: [] for k in ['time', 'theta', 'theta_dot', 'x', 'x_dot',
+                                 'theta_ddot', 'x_ddot', 'action', 'reward']}
     action_times = []
     t = 0.0
     done = False
@@ -383,9 +411,16 @@ def rollout_classical_timed(
         # Step environment
         obs, reward, terminated, truncated, info = env.step(np.array([action]))
 
+        # Compute accelerations from dynamics
+        state_derivative = env._dyn(state, action)  # [theta_dot, theta_ddot, x_dot, x_ddot]
+
         history['time'].append(t)
         history['theta'].append(state[0])
+        history['theta_dot'].append(state[1])
         history['x'].append(state[2])
+        history['x_dot'].append(state[3])
+        history['theta_ddot'].append(state_derivative[1])  # Angular acceleration
+        history['x_ddot'].append(state_derivative[3])      # Linear acceleration
         history['action'].append(action)
         history['reward'].append(reward)
 
