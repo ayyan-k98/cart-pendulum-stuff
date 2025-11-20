@@ -1,11 +1,12 @@
 """
-Cart-Pendulum Gymnasium Environment (Reference-Matched Implementation)
+Cart-Pendulum Gymnasium Environment (Standard RL Convention)
 
-This module implements the cart-pendulum system matching the reference FFFB code exactly.
+This module implements the cart-pendulum system with standard RL conventions.
 
-CRITICAL CONVENTIONS (matching reference v6, JB May 2025):
-    - θ = 0 at BOTTOM (hanging down)
-    - θ = π at TOP (upright, target state)
+CRITICAL CONVENTIONS (STANDARD RL):
+    - θ ∈ (-π, π]  (angle wraps at ±π)
+    - θ = 0 at TOP (upright, target state)
+    - θ = ±π at BOTTOM (hanging down, wrapping point)
     - Positive θ is counter-clockwise rotation
 
 Physics Model (Simplified, m << M approximation):
@@ -39,9 +40,9 @@ import gymnasium as gym
 
 class CartPendulumEnv(gym.Env):
     """
-    Cart-Pendulum environment matching reference implementation exactly.
+    Cart-Pendulum environment with standard RL convention.
 
-    CRITICAL: θ=0 at BOTTOM, θ=π at TOP (upright target)
+    CRITICAL: θ ∈ (-π, π], θ=0 at TOP (upright target), θ=±π at BOTTOM
     """
 
     metadata = {
@@ -191,9 +192,9 @@ class CartPendulumEnv(gym.Env):
 
         Uses [sin(θ), cos(θ), θ̇, x, ẋ] to avoid angle wrapping discontinuities.
 
-        CRITICAL: With θ=0 at bottom:
-            - sin(0)=0, cos(0)=1 → hanging down
-            - sin(π)=0, cos(π)=-1 → upright (target)
+        CRITICAL: With standard convention (θ=0 at top):
+            - sin(0)=0, cos(0)=+1 → upright (target)
+            - sin(±π)=0, cos(±π)=-1 → hanging down
         """
         theta, theta_dot, x, x_dot = state
         return np.array(
@@ -203,24 +204,26 @@ class CartPendulumEnv(gym.Env):
 
     def _compute_reward(self, state: np.ndarray, u: float) -> float:
         """
-        Compute reward (θ=0 at bottom, θ=π at top).
+        Compute reward (STANDARD RL CONVENTION).
 
-        Target state: θ=π (upright), x=0
+        Target state: θ=0 (upright), x=0
+
+        Convention: θ ∈ (-π, π], θ=0 at TOP, θ=±π at BOTTOM
 
         Reward components:
-            1. Angle: cos(θ) + 1 (0 at bottom, +2 at top)
+            1. Angle: cos(θ) + 1 (0 at bottom ±π, +2 at top 0)
             2. Angular velocity: -0.05·θ̇²
             3. Position: -0.15·x²
             4. Control: -0.01·u²
             5. Smoothness: -du_weight·(u - u_prev)²
             6. Soft wall: -soft_wall_k·overshoot²
-            7. Success bonus: +10.0 if near upright
+            7. Success bonus: +10.0 if near upright (θ≈0)
         """
         theta, theta_dot, x, x_dot = state
 
-        # Angle cost: reward being near θ=π (upright)
-        # cos(θ) = -1 at θ=π (upright), +1 at θ=0 (bottom)
-        # So: cos(θ) + 1 ranges from 0 (bottom) to 2 (top)
+        # Angle cost: reward being near θ=0 (upright)
+        # cos(θ) = +1 at θ=0 (upright), -1 at θ=±π (hanging)
+        # So: cos(θ) + 1 ranges from 2 (upright) to 0 (hanging)
         reward = math.cos(theta) + 1.0
 
         # Angular velocity damping
@@ -242,8 +245,8 @@ class CartPendulumEnv(gym.Env):
                 overshoot = abs(x) - self.soft_wall_start
                 reward -= self.soft_wall_k * overshoot**2
 
-        # Success bonus: near upright (θ ≈ π) and centered (x ≈ 0)
-        theta_error = abs(theta - math.pi)
+        # Success bonus: near upright (θ ≈ 0) and centered (x ≈ 0)
+        theta_error = abs(theta)  # Distance from θ=0 (upright)
         if theta_error < 0.2 and abs(x) < 0.2:
             reward += 10.0
 
@@ -266,13 +269,13 @@ class CartPendulumEnv(gym.Env):
         """
         Reset environment.
 
-        Convention: θ=0 at bottom, θ=π at top (upright target)
+        Convention: θ ∈ (-π, π], θ=0 at top (upright target)
 
         Phase 1 (stabilization): Start near upright
-            θ ∈ [π-0.2, π+0.2]
+            θ ∈ [-0.2, +0.2] (near θ=0)
 
         Phase 2 (swingup): Start anywhere
-            θ ∈ [0, 2π]
+            θ ∈ (-π, π]
         """
         super().reset(seed=seed)
 
@@ -281,17 +284,17 @@ class CartPendulumEnv(gym.Env):
 
         # Sample initial state based on curriculum
         if self.curriculum_phase == "stabilization":
-            # Near upright (θ ≈ π)
-            theta = self.np_random.uniform(math.pi - 0.2, math.pi + 0.2)
+            # Near upright (θ ≈ 0)
+            theta = self.np_random.uniform(-0.2, 0.2)
             x = self.np_random.uniform(-0.3, 0.3)
         else:  # swingup
             if self.np_random.random() < self.stabilization_prob:
                 # Occasionally near upright (prevent forgetting)
-                theta = self.np_random.uniform(math.pi - 0.2, math.pi + 0.2)
+                theta = self.np_random.uniform(-0.2, 0.2)
                 x = self.np_random.uniform(-0.3, 0.3)
             else:
                 # Full random (anywhere on circle)
-                theta = self.np_random.uniform(0, 2 * math.pi)
+                theta = self.np_random.uniform(-math.pi, math.pi)
                 x = self.np_random.uniform(-0.5, 0.5)
 
         # Wrap theta to (-π, π]
@@ -345,7 +348,7 @@ class CartPendulumEnv(gym.Env):
         self._last_u = 0.0
 
     def render(self):
-        """Render the environment (θ=0 at bottom convention)."""
+        """Render the environment (standard RL: θ=0 at top, θ=±π at bottom)."""
         if self.render_mode is None:
             return None
 
@@ -372,7 +375,7 @@ class CartPendulumEnv(gym.Env):
             if self.render_mode == "human":
                 pygame.display.init()
                 self.screen = pygame.display.set_mode((screen_width, screen_height))
-                pygame.display.set_caption("Cart-Pendulum (θ=0 at bottom)")
+                pygame.display.set_caption("Cart-Pendulum (θ=0 at top)")
             else:
                 self.screen = pygame.Surface((screen_width, screen_height))
 
@@ -406,13 +409,13 @@ class CartPendulumEnv(gym.Env):
         gfxdraw.box(self.screen, cart_rect, (70, 130, 180))
         pygame.draw.rect(self.screen, (0, 0, 0), cart_rect, 2)
 
-        # Draw pole (θ=0 at bottom, positive CCW)
+        # Draw pole (STANDARD: θ=0 at top, θ=±π at bottom, positive CCW)
         pole_pivot_x = cart_x
         pole_pivot_y = cart_y
 
-        # θ=0 means hanging down, θ=π means up
+        # θ=0 means upright (pointing up), θ=±π means hanging down
         pole_end_x = pole_pivot_x + pole_length * math.sin(theta)
-        pole_end_y = pole_pivot_y + pole_length * math.cos(theta)  # +cos (θ=0 is down)
+        pole_end_y = pole_pivot_y - pole_length * math.cos(theta)  # -cos (θ=0 is up)
 
         pygame.draw.line(
             self.screen,
@@ -434,11 +437,11 @@ class CartPendulumEnv(gym.Env):
         # State info
         font = pygame.font.Font(None, 24)
         angle_deg = math.degrees(theta)
-        theta_from_top = abs(math.degrees(theta - math.pi))
+        theta_from_top = abs(math.degrees(theta))  # Distance from θ=0 (upright)
 
         info_lines = [
-            f"θ = {angle_deg:6.1f}° (from bottom)",
-            f"θ from top = {theta_from_top:6.1f}°",
+            f"θ = {angle_deg:6.1f}°",
+            f"deviation from upright = {theta_from_top:6.1f}°",
             f"θ̇ = {theta_dot:6.2f}",
             f"x = {x:6.2f}",
             f"ẋ = {x_dot:6.2f}",
@@ -450,8 +453,8 @@ class CartPendulumEnv(gym.Env):
             self.screen.blit(text_surface, (10, y_offset))
             y_offset += 25
 
-        # Upright indicator
-        if abs(theta - math.pi) < math.radians(10):
+        # Upright indicator (θ ≈ 0 is upright)
+        if abs(theta) < math.radians(10):
             status_text = "UPRIGHT ✓"
             status_color = (0, 150, 0)
         else:
