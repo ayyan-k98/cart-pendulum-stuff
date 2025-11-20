@@ -106,8 +106,8 @@ def train_sac(
         du_weight: Action smoothness penalty weight
         two_phase: If True, run phase 1 (stabilization) before phase 2
         train_with_friction: If True, use friction randomization during training
-            - True: c_theta ∈ [0.0, 0.03], c_x ∈ [0.0, 0.05] (robust to friction)
-            - False: c_theta = 0.0, c_x = 0.0 (frictionless training)
+            - True: zeta ∈ [0.0, 0.03] (robust to angular friction)
+            - False: zeta = 0.01 (fixed light friction)
             - Allows comparison of models trained with/without friction modeling
         verbose: Print progress messages
 
@@ -156,12 +156,11 @@ def train_sac(
         start_method = {"start_method": method}
 
     # Configure friction based on train_with_friction flag
+    # Note: New simplified dynamics only has angular friction (zeta)
     # Phase 1: Light friction randomization
-    c_theta_p1 = (0.0, 0.03) if train_with_friction else 0.0
-    c_x_p1 = (0.0, 0.05) if train_with_friction else 0.0
+    zeta_p1 = (0.0, 0.03) if train_with_friction else 0.01
     # Phase 2: Heavier friction randomization
-    c_theta_p2 = (0.0, 0.05) if train_with_friction else 0.0
-    c_x_p2 = (0.0, 0.08) if train_with_friction else 0.0
+    zeta_p2 = (0.0, 0.05) if train_with_friction else 0.01
 
     # Phase 1: Stabilization (optional but recommended)
     if two_phase:
@@ -178,12 +177,11 @@ def train_sac(
             env = CartPendulumEnv(
                 curriculum_phase="stabilization",
                 rk4_substeps=train_substeps,
-                c_theta=c_theta_p1,  # Friction randomization (or zero)
-                c_x=c_x_p1,
+                zeta=zeta_p1,  # Angular friction (with or without randomization)
                 soft_wall_k=soft_wall_k,
                 du_weight=du_weight
             )
-            return TimeLimit(env, max_episode_steps=500)
+            return TimeLimit(env, max_episode_steps=1000)
 
         env_p1 = make_vec_env(
             make_p1_env,
@@ -252,12 +250,11 @@ def train_sac(
         env = CartPendulumEnv(
             curriculum_phase="swingup",
             rk4_substeps=train_substeps,
-            c_theta=c_theta_p2,  # Heavier friction randomization (or zero)
-            c_x=c_x_p2,
+            zeta=zeta_p2,  # Heavier angular friction randomization
             soft_wall_k=soft_wall_k,
             du_weight=du_weight
         )
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     env_p2 = make_vec_env(
         make_p2_env,
@@ -428,12 +425,11 @@ def finetune_sac(
         env = CartPendulumEnv(
             curriculum_phase="swingup",
             rk4_substeps=train_substeps,
-            c_theta=(0.0, 0.05),
-            c_x=(0.0, 0.08),
+            zeta=(0.0, 0.05),  # Angular friction randomization
             soft_wall_k=soft_wall_k,
             du_weight=du_weight
         )
-        return TimeLimit(env, max_episode_steps=1000)
+        return TimeLimit(env, max_episode_steps=2000)
 
     env = make_vec_env(
         make_env,
