@@ -7,31 +7,32 @@ CRITICAL CONVENTIONS (matching reference v6, JB May 2025):
     - θ = 0 at BOTTOM (hanging down)
     - θ = π at TOP (upright, target state)
     - Positive θ is counter-clockwise rotation
+    - Time scaled to pendulum period: τ = 2π
 
-Physics Model (Simplified, m << M approximation):
-    θ̈ = -g/l·sin(θ) - 2ζ·θ̇ - (u/l)·cos(θ)
-    ẍ = u
+Physics Model (Simplified):
+    Assumes m << M (light pendulum approximation):
+        θ̈ = -sin(θ) - 2ζθ̇ - u·cos(θ)
+        ẍ = u
 
-    With physical parameters:
-        l = 1.0 m (pendulum length)
-        g = 9.81 m/s² (gravity)
-        ζ = friction coefficient (dimensionless)
-        u = control force/mass (m/s²)
+    Where:
+        ζ = angular friction coefficient (dimensionless)
+        u = control acceleration (dimensionless)
 
     State: [θ, θ̇, x, ẋ]
-        - θ: angle from bottom (rad), wrapped to (-π,π]
-        - θ̇: angular velocity (rad/s)
-        - x: cart position (m), limit at ±2.4m
-        - ẋ: cart velocity (m/s)
+        - θ: angle from bottom (rad), θ∈[0,2π) or wrapped to (-π,π)
+        - θ̇: angular velocity (rad/τ, dimensionless)
+        - x: cart position (dimensionless, limit at ±xmax)
+        - ẋ: cart velocity (dimensionless)
 
 Key Features:
-    - RK4 integration with 10 substeps per control step
-    - Control timestep: dt = 0.02s (50 Hz)
-    - Track limits: ±2.4m (hard termination)
-    - Simplified dynamics matching reference exactly
+    - RK4 integration with configurable substeps
+    - Dimensionless time (scaled to pendulum period)
+    - Simplified dynamics (m << M approximation)
+    - Curriculum learning (stabilization vs swingup)
+    - Matches reference FFFB implementation exactly
 """
 
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union, Optional, Dict
 import math
 import numpy as np
 import gymnasium as gym
@@ -52,12 +53,11 @@ class CartPendulumEnv(gym.Env):
     def __init__(
         self,
         curriculum_phase: str = "swingup",
-        zeta: Union[float, Tuple[float, float]] = 0.01,  # friction coefficient
+        zeta: Union[float, Tuple[float, float]] = 0.01,  # "actual" friction for simulation
         rk4_substeps: int = 10,
-        dt: float = 0.02,  # control timestep (seconds)
-        xmax: float = 2.4,  # track limits at ±xmax (meters)
-        umax: float = 20.0,  # control limit (m/s²)
-        soft_wall_start: float = 2.0,
+        xmax: float = 2.0,  # track limits at ±xmax
+        umax: float = 5.0,  # control limit (for clipping in practice)
+        soft_wall_start: float = 1.8,
         soft_wall_k: float = 0.0,
         du_weight: float = 1e-4,
         seed: Optional[int] = None,
@@ -69,13 +69,12 @@ class CartPendulumEnv(gym.Env):
 
         Args:
             curriculum_phase: "swingup" or "stabilization"
-            zeta: Angular friction coefficient (dimensionless)
+            zeta: Angular friction coefficient (or range for randomization)
                 - Reference uses ζ=0.01 for simulations
                 - Can be tuple (min, max) for domain randomization
             rk4_substeps: Number of RK4 substeps per control step
-            dt: Control timestep (seconds), default 0.02s = 50 Hz
-            xmax: Track limit (meters), default 2.4m
-            umax: Control acceleration limit (m/s²), default 20.0
+            xmax: Track limit (cart can move in ±xmax)
+            umax: Control force limit (for safety clipping)
             soft_wall_start: Where soft wall penalty begins
             soft_wall_k: Soft wall penalty coefficient
             du_weight: Action smoothness penalty
@@ -85,16 +84,15 @@ class CartPendulumEnv(gym.Env):
         """
         super().__init__()
 
-        # Physical parameters
-        self.l = 1.0  # pendulum length (m)
-        self.g = 9.81  # gravity (m/s²)
-
-        # Time parameters
-        self.dt = float(dt)
+        # Time scaling (dimensionless, scaled to pendulum period)
+        # τ = 2π = 1 pendulum period in scaled time
+        # Physical dt = 0.02s maps to dimensionless dt based on actual pendulum
+        # For now, keep dt in "scaled" units
+        self.dt = 2 * np.pi / 100  # ~100 steps per pendulum period
         self.n_substeps = int(rk4_substeps)
         self.dt_int = self.dt / self.n_substeps
 
-        # Limits
+        # Physics parameters
         self.xmax = float(xmax)
         self.umax = float(umax)
 
@@ -112,11 +110,13 @@ class CartPendulumEnv(gym.Env):
         self.du_weight = float(du_weight)
 
         # Gymnasium spaces
+        # Action: dimensionless acceleration
         self.action_space = gym.spaces.Box(
             low=-self.umax, high=self.umax, shape=(1,), dtype=np.float32
         )
 
         # Observation: [sin(θ), cos(θ), θ̇, x, ẋ]
+        # θ̇ and ẋ are dimensionless (scaled to pendulum period)
         obs_limit = np.array([1.0, 1.0, 15.0, self.xmax, 10.0], dtype=np.float32)
         self.observation_space = gym.spaces.Box(
             low=-obs_limit, high=obs_limit, dtype=np.float32
@@ -146,15 +146,15 @@ class CartPendulumEnv(gym.Env):
         """
         Compute state derivatives (SIMPLIFIED DYNAMICS matching reference).
 
-        Equations (physical units):
-            θ̈ = -(g/l)·sin(θ) - 2ζ·θ̇ - (u/l)·cos(θ)
+        Equations (dimensionless):
+            θ̈ = -sin(θ) - 2ζθ̇ - u·cos(θ)
             ẍ = u
 
         This assumes m << M (light pendulum approximation).
 
         Args:
             state: [θ, θ̇, x, ẋ]
-            u: control acceleration (m/s²)
+            u: control acceleration (dimensionless)
 
         Returns:
             [θ̇, θ̈, ẋ, ẍ]
@@ -163,7 +163,7 @@ class CartPendulumEnv(gym.Env):
         zeta = self._zeta_ep if self._zeta_ep is not None else float(self.zeta_config)
 
         # Simplified pendulum equation (matching reference)
-        theta_ddot = -(self.g / self.l) * math.sin(theta) - 2 * zeta * theta_dot - (u / self.l) * math.cos(theta)
+        theta_ddot = -math.sin(theta) - 2 * zeta * theta_dot - u * math.cos(theta)
 
         # Cart equation (direct acceleration)
         x_ddot = u
@@ -208,11 +208,12 @@ class CartPendulumEnv(gym.Env):
         Target state: θ=π (upright), x=0
 
         Reward components:
-            1. Angle: cos(θ) + 1 (0 at bottom, +2 at top)
+            1. Angle cost: -(π - θ)² penalizes deviation from upright
+               OR: cos(θ) + 1 (ranges from 0 at bottom to +2 at top)
             2. Angular velocity: -0.05·θ̇²
             3. Position: -0.15·x²
             4. Control: -0.01·u²
-            5. Smoothness: -du_weight·(u - u_prev)²
+            5. Smoothness: -1e-4·(u - u_prev)²
             6. Soft wall: -soft_wall_k·overshoot²
             7. Success bonus: +10.0 if near upright
         """
@@ -221,7 +222,7 @@ class CartPendulumEnv(gym.Env):
         # Angle cost: reward being near θ=π (upright)
         # cos(θ) = -1 at θ=π (upright), +1 at θ=0 (bottom)
         # So: cos(θ) + 1 ranges from 0 (bottom) to 2 (top)
-        reward = math.cos(theta) + 1.0
+        reward = math.cos(theta) + 1.0  # 0 at bottom, +2 at top
 
         # Angular velocity damping
         reward -= 0.05 * theta_dot**2
@@ -243,7 +244,8 @@ class CartPendulumEnv(gym.Env):
                 reward -= self.soft_wall_k * overshoot**2
 
         # Success bonus: near upright (θ ≈ π) and centered (x ≈ 0)
-        theta_error = abs(theta - math.pi)
+        # θ ∈ [π-0.2, π+0.2] is roughly ±11° from upright
+        theta_error = abs(theta - math.pi)  # Distance from upright
         if theta_error < 0.2 and abs(x) < 0.2:
             reward += 10.0
 
@@ -272,7 +274,7 @@ class CartPendulumEnv(gym.Env):
             θ ∈ [π-0.2, π+0.2]
 
         Phase 2 (swingup): Start anywhere
-            θ ∈ [0, 2π]
+            θ ∈ [0, 2π] or equivalently [-π, π]
         """
         super().reset(seed=seed)
 
@@ -291,6 +293,8 @@ class CartPendulumEnv(gym.Env):
                 x = self.np_random.uniform(-0.3, 0.3)
             else:
                 # Full random (anywhere on circle)
+                # Reference starts at θ=0 (bottom)
+                # For training variety, sample full range
                 theta = self.np_random.uniform(0, 2 * math.pi)
                 x = self.np_random.uniform(-0.5, 0.5)
 
@@ -412,7 +416,7 @@ class CartPendulumEnv(gym.Env):
 
         # θ=0 means hanging down, θ=π means up
         pole_end_x = pole_pivot_x + pole_length * math.sin(theta)
-        pole_end_y = pole_pivot_y + pole_length * math.cos(theta)  # +cos (θ=0 is down)
+        pole_end_y = pole_pivot_y + pole_length * math.cos(theta)  # Note: +cos (θ=0 is down)
 
         pygame.draw.line(
             self.screen,
@@ -434,7 +438,7 @@ class CartPendulumEnv(gym.Env):
         # State info
         font = pygame.font.Font(None, 24)
         angle_deg = math.degrees(theta)
-        theta_from_top = abs(math.degrees(theta - math.pi))
+        theta_from_top = abs(math.degrees(theta - math.pi))  # Deviation from upright
 
         info_lines = [
             f"θ = {angle_deg:6.1f}° (from bottom)",

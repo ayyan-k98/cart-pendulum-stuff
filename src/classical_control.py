@@ -6,8 +6,8 @@ This module implements optimal control baselines matching the reference FFFB cod
 CRITICAL CONVENTIONS:
     - θ = 0 at BOTTOM (hanging down)
     - θ = π at TOP (upright, target state)
-    - Simplified dynamics: θ̈ = -sin(θ) - 2ζθ̇ - u·cos(θ), ẍ = u
-    - Dimensionless time: τ = 2π (one pendulum period)
+    - Simplified dynamics: θ̈ = -(g/l)·sin(θ) - 2ζ·θ̇ - (u/l)·cos(θ), ẍ = u
+    - Physical units: l=1.0m, g=9.81m/s², dt=0.02s, umax=20.0m/s²
     - Friction: IGNORED in FF planning, INCLUDED in prediction/simulation
 
 Control Architecture:
@@ -18,12 +18,12 @@ Control Architecture:
 Mathematical Foundation:
     Optimal control problem (frictionless for planning):
         minimize ∫[x^T Q x + u^T R u] dt
-        subject to: θ̈ = -sin(θ) - u·cos(θ), ẍ = u
+        subject to: θ̈ = -(g/l)·sin(θ) - (u/l)·cos(θ), ẍ = u
 
     BVP formulation uses Pontryagin's Maximum Principle:
         - State equations: ẋ = f(x, u)
         - Costate equations: λ̇ = -∂H/∂x
-        - Optimality: ∂H/∂u = 0 => u = -λ_ẋ + λ_θ̇·cos(θ)
+        - Optimality: ∂H/∂u = 0 => u = -λ_ẋ + (λ_θ̇/l)·cos(θ)
 
     LQR formulation:
         - Riccati equation: Ṡ = -A^T S - S A - Q + S B R^{-1} B^T S
@@ -63,9 +63,11 @@ class TrajectoryPlanner:
         self,
         Q: Optional[np.ndarray] = None,
         R: Optional[np.ndarray] = None,
-        umax: float = 5.0,
+        umax: float = 20.0,
         zeta: float = 0.01,
-        prediction_time: float = 0.0
+        prediction_time: float = 0.0,
+        l: float = 1.0,
+        g: float = 9.81
     ):
         """
         Initialize the trajectory planner.
@@ -73,11 +75,13 @@ class TrajectoryPlanner:
         Args:
             Q: State cost matrix (4x4). Default: diag([10, 4, 10, 2])
             R: Control cost matrix (1x1). Default: [[2.0]]
-            umax: Maximum control acceleration (dimensionless)
+            umax: Maximum control acceleration (m/s²), default 20.0
             zeta: Angular friction coefficient (dimensionless, for prediction only)
                 - Reference uses ζ=0.01 for simulations
                 - Used ONLY for state prediction, NOT in FF planning
-            prediction_time: Planning delay compensation (dimensionless time)
+            prediction_time: Planning delay compensation (seconds)
+            l: Pendulum length (m), default 1.0
+            g: Gravity (m/s²), default 9.81
         """
         if Q is None:
             Q = np.diag([10.0, 4.0, 10.0, 2.0])
@@ -89,6 +93,8 @@ class TrajectoryPlanner:
         self.umax = float(umax)
         self.zeta = float(zeta)
         self.prediction_time = float(prediction_time)
+        self.l = float(l)
+        self.g = float(g)
         self.plan = None
         self.FFsol = None
         self.Ssol = None
@@ -106,7 +112,7 @@ class TrajectoryPlanner:
 
         Args:
             s: Current state [θ, θ̇, x, ẋ]
-            dt: Prediction time horizon (dimensionless)
+            dt: Prediction time horizon (seconds)
 
         Returns:
             Predicted state after dt
@@ -119,7 +125,7 @@ class TrajectoryPlanner:
             θ, θdot, x, xdot = state
             return np.array([
                 θdot,
-                -np.sin(θ) - 2.0 * self.zeta * θdot,  # Friction in prediction
+                -(self.g/self.l) * np.sin(θ) - 2.0 * self.zeta * θdot,  # Friction in prediction
                 xdot,
                 0.0  # u=0
             ])
@@ -230,31 +236,34 @@ class TrajectoryPlanner:
 
             State: X = [θ, θ̇, x, ẋ, λ_θ, λ_θ̇, λ_x, λ_ẋ]
 
-            Simplified dynamics:
-                θ̈ = -sin(θ) - u·cos(θ)
+            Simplified dynamics (physical units):
+                θ̈ = -(g/l)·sin(θ) - (u/l)·cos(θ)
                 ẍ = u
 
             Control from optimality:
-                u* = -λ_ẋ + λ_θ̇·cos(θ)
+                u* = -λ_ẋ + (λ_θ̇/l)·cos(θ)
             """
             θ, θdot, x, xdot, λθ, λθdot, λx, λxdot = X
 
             # Optimal control (from ∂H/∂u = 0)
-            u = -λxdot + λθdot * np.cos(θ)
+            # For the system with dynamics θ̈ = -(g/l)sin(θ) - (u/l)cos(θ), ẍ = u
+            # Hamiltonian derivatives give: u* = -λ_ẋ + (λ_θ̇/l)·cos(θ)
+            u = -λxdot + (λθdot / self.l) * np.cos(θ)
 
             # State dynamics (SIMPLIFIED, FRICTIONLESS)
             dX = np.zeros_like(X)
             dX[0, :] = θdot
-            dX[1, :] = -np.sin(θ) - u * np.cos(θ)  # No friction
+            dX[1, :] = -(self.g / self.l) * np.sin(θ) - (u / self.l) * np.cos(θ)  # No friction
             dX[2, :] = xdot
             dX[3, :] = u
 
             # Costate dynamics: λ̇ = -∂H/∂x
-            # ∂H/∂θ = -λ_θ̇·(cos(θ) - u·sin(θ))
+            # For θ̈ = -(g/l)sin(θ) - (u/l)cos(θ):
+            # ∂H/∂θ = -λ_θ̇·[-(g/l)cos(θ) + (u/l)sin(θ)]
             # ∂H/∂θ̇ = -λ_θ (no friction term)
             # ∂H/∂x = 0
             # ∂H/∂ẋ = -λ_x
-            dX[4, :] = λθdot * (np.cos(θ) - u * np.sin(θ))
+            dX[4, :] = λθdot * ((self.g / self.l) * np.cos(θ) - (u / self.l) * np.sin(θ))
             dX[5, :] = -λθ  # No friction damping term
             dX[6, :] = np.zeros_like(λx)
             dX[7, :] = -λx
@@ -290,11 +299,11 @@ class TrajectoryPlanner:
             """State matrix from linearization (FRICTIONLESS)."""
             θt = self.FFsol(t)[0]
             _, _, _, _, _, λθdot, _, λxdot = self.FFsol(t)
-            u_ff = -λxdot + λθdot * np.cos(θt)
+            u_ff = -λxdot + (λθdot / self.l) * np.cos(θt)
 
             return np.array([
                 [0, 1, 0, 0],
-                [-np.cos(θt) + u_ff * np.sin(θt), 0, 0, 0],  # No friction
+                [-(self.g / self.l) * np.cos(θt) + (u_ff / self.l) * np.sin(θt), 0, 0, 0],  # No friction
                 [0, 0, 0, 1],
                 [0, 0, 0, 0]
             ])
@@ -302,7 +311,7 @@ class TrajectoryPlanner:
         def B(t):
             """Control matrix from linearization."""
             θt = self.FFsol(t)[0]
-            return np.array([[0.0], [-np.cos(θt)], [0.0], [1.0]])
+            return np.array([[0.0], [-(1.0 / self.l) * np.cos(θt)], [0.0], [1.0]])
 
         def Riccati(t, Svec):
             """Riccati ODE (backwards integration)."""
@@ -335,27 +344,27 @@ class TrajectoryPlanner:
         Feedforward control at time t.
 
         Args:
-            t: Time (dimensionless)
+            t: Time (seconds)
 
         Returns:
-            Feedforward control acceleration
+            Feedforward control acceleration (m/s²)
         """
         θ, _, _, _, _, λθdot, _, λxdot = self.FFsol(t)
-        return -λxdot + λθdot * np.cos(θ)
+        return -λxdot + (λθdot / self.l) * np.cos(θ)
 
     def _K(self, t: float) -> np.ndarray:
         """
         Time-varying feedback gain K(t) = R^{-1} B^T S(t).
 
         Args:
-            t: Time (dimensionless)
+            t: Time (seconds)
 
         Returns:
             Feedback gain vector (1x4)
         """
         S = self.Ssol(t).reshape((4, 4))
         θt = self.FFsol(t)[0]
-        Bt = np.array([[0.0], [-np.cos(θt)], [0.0], [1.0]])
+        Bt = np.array([[0.0], [-(1.0 / self.l) * np.cos(θt)], [0.0], [1.0]])
         return (Bt.T @ S / self.R[0, 0]).ravel()
 
     def get_action(self, s: np.ndarray, t: float) -> float:
@@ -368,10 +377,10 @@ class TrajectoryPlanner:
 
         Args:
             s: Current state [θ, θ̇, x, ẋ] (θ=0 is bottom, θ=π is top)
-            t: Time since start of maneuver
+            t: Time since start of maneuver (seconds)
 
         Returns:
-            Control acceleration (dimensionless), clipped to [-umax, umax]
+            Control acceleration (m/s²), clipped to [-umax, umax]
         """
         if self.plan is None or not self.plan:
             # No valid plan, return zero control
