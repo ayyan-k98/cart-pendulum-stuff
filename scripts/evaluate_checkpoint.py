@@ -151,12 +151,14 @@ def evaluate_single_state(
     # Analyze results
     final_theta = trajectory['theta'].iloc[-1]
     final_theta_deg = np.rad2deg(final_theta)
-    success = abs(final_theta) < np.deg2rad(10)
+    # Success: near upright (θ ≈ ±π = ±180°)
+    theta_error = abs(abs(final_theta) - np.pi)
+    success = theta_error < np.deg2rad(10)
 
     print("Results:")
     print(f"  Duration: {trajectory['time'].iloc[-1]:.2f}s ({len(trajectory)} steps)")
     print(f"  Final angle: {final_theta_deg:+.2f}°")
-    print(f"  Success: {'✓ YES' if success else '✗ NO'} (|θ_final| < 10°)")
+    print(f"  Success: {'✓ YES' if success else '✗ NO'} (θ within 10° of upright)")
     print(f"  Max cart position: {trajectory['x'].abs().max():.3f} m (limit: 2.4m)")
     print(f"  Max control force: {trajectory['action'].abs().max():.2f} N (limit: 10N)")
 
@@ -212,9 +214,10 @@ def evaluate_multiple_episodes(
         # Run episode
         traj, timing = rollout_rl_timed(model, vec_env, state, max_seconds=10.0)
 
-        # Check success
+        # Check success (θ ≈ ±π = ±180° for upright)
         final_theta = traj['theta'].iloc[-1]
-        success = abs(final_theta) < np.deg2rad(10)
+        theta_error = abs(abs(final_theta) - np.pi)
+        success = theta_error < np.deg2rad(10)
         successes += int(success)
 
         results.append({
@@ -289,7 +292,9 @@ def evaluate_with_classical_comparison(
     print("\nRunning RL controller...")
     traj_rl, timing_rl = rollout_rl_timed(model, vec_env, state, max_seconds=10.0)
     final_theta_rl = np.rad2deg(traj_rl['theta'].iloc[-1])
-    success_rl = abs(traj_rl['theta'].iloc[-1]) < np.deg2rad(10)
+    # Success: near upright (θ ≈ ±π = ±180°)
+    theta_error_rl = abs(abs(traj_rl['theta'].iloc[-1]) - np.pi)
+    success_rl = theta_error_rl < np.deg2rad(10)
 
     # Run Classical
     print("Running Classical controller...")
@@ -303,7 +308,12 @@ def evaluate_with_classical_comparison(
         print("  (BVP solver could not find a solution for this initial state)")
 
     final_theta_classical = np.rad2deg(traj_classical['theta'].iloc[-1]) if len(traj_classical) > 0 else theta0_deg
-    success_classical = abs(traj_classical['theta'].iloc[-1]) < np.deg2rad(10) if len(traj_classical) > 0 else False
+    # Success: near upright (θ ≈ ±π = ±180°)
+    if len(traj_classical) > 0:
+        theta_error_classical = abs(abs(traj_classical['theta'].iloc[-1]) - np.pi)
+        success_classical = theta_error_classical < np.deg2rad(10)
+    else:
+        success_classical = False
 
     # Results
     print("\nResults:")
