@@ -277,7 +277,7 @@ def evaluate_with_classical_comparison(
     print(f"\nInitial state: θ₀={theta0_deg:.1f}°")
 
     # Create classical planner
-    planner = TrajectoryPlanner(umax=10.0)
+    planner = TrajectoryPlanner(umax=20.0)
 
     # Run RL
     print("\nRunning RL controller...")
@@ -355,7 +355,7 @@ def evaluate_grid(
     states = create_state_grid(n_theta=n_theta, n_theta_dot=n_theta_dot)
 
     # Create classical planner for comparison
-    planner = TrajectoryPlanner(umax=10.0)
+    planner = TrajectoryPlanner(umax=20.0)
 
     # Evaluate
     print("Evaluating grid (this may take several minutes)...")

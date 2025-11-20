@@ -183,7 +183,7 @@ def train_sac(
                 soft_wall_k=soft_wall_k,
                 du_weight=du_weight
             )
-            return TimeLimit(env, max_episode_steps=1000)
+            return TimeLimit(env, max_episode_steps=500)
 
         env_p1 = make_vec_env(
             make_p1_env,
@@ -257,7 +257,7 @@ def train_sac(
             soft_wall_k=soft_wall_k,
             du_weight=du_weight
         )
-        return TimeLimit(env, max_episode_steps=2000)
+        return TimeLimit(env, max_episode_steps=1000)
 
     env_p2 = make_vec_env(
         make_p2_env,
@@ -433,7 +433,7 @@ def finetune_sac(
             soft_wall_k=soft_wall_k,
             du_weight=du_weight
         )
-        return TimeLimit(env, max_episode_steps=2000)
+        return TimeLimit(env, max_episode_steps=1000)
 
     env = make_vec_env(
         make_env,
