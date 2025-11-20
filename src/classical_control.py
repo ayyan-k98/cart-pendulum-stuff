@@ -1,11 +1,12 @@
 """
-Classical Control Baselines for Cart-Pendulum (Reference-Matched)
+Classical Control Baselines for Cart-Pendulum
 
-This module implements optimal control baselines matching the reference FFFB code (v6, JB May 2025).
+This module implements optimal control using feedforward (BVP) + feedback (LQR).
 
-CRITICAL CONVENTIONS:
-    - θ = 0 at BOTTOM (hanging down)
-    - θ = π at TOP (upright, target state)
+CRITICAL CONVENTIONS (STANDARD RL):
+    - θ ∈ (-π, π]  (angle wraps at ±π)
+    - θ = 0 at TOP (upright, goal state)
+    - θ = ±π at BOTTOM (hanging down, wrapping point)
     - Simplified dynamics: θ̈ = -(g/l)·sin(θ) - 2ζ·θ̇ - (u/l)·cos(θ), ẍ = u
     - Physical units: l=1.0m, g=9.81m/s², dt=0.02s, umax=20.0m/s²
     - Friction: IGNORED in FF planning, INCLUDED in prediction/simulation
@@ -40,11 +41,12 @@ class TrajectoryPlanner:
     """
     Optimal trajectory planner using BVP and time-varying LQR.
 
-    MATCHES REFERENCE IMPLEMENTATION (v6, JB May 2025):
-        - θ=0 at bottom, θ=π at top
+    STANDARD RL CONVENTION:
+        - θ ∈ (-π, π], wraps at ±π
+        - θ=0 at TOP (upright, goal)
+        - θ=±π at BOTTOM (hanging)
         - Simplified dynamics (m << M)
         - Friction ignored in FF, included in prediction
-        - Direction selection (CW vs CCW)
         - State prediction for planning delay
 
     Attributes:
@@ -135,15 +137,15 @@ class TrajectoryPlanner:
 
     def plan_from(self, s: np.ndarray) -> bool:
         """
-        Plan optimal trajectory from initial state to upright (θ=π).
+        Plan optimal trajectory from initial state to upright (θ=0).
 
-        Features matching reference:
+        Features:
         1. State prediction: Compensates for planning delay
-        2. Direction selection: Tries CW and CCW, picks lower cost
-        3. Multiple durations: Tries [3.5, 4.0, 5.0] until success
+        2. Multiple durations: Tries [1, 1.5, 2] × pendulum_period until success
+        3. Cost minimization: Picks lowest-cost trajectory
 
         Args:
-            s: Initial state [θ, θ̇, x, ẋ] (θ=0 is bottom)
+            s: Initial state [θ, θ̇, x, ẋ] where θ∈(-π,π], θ=0 is upright
 
         Returns:
             True if planning succeeded, False otherwise
@@ -155,28 +157,14 @@ class TrajectoryPlanner:
         # Convention: θ=0 at bottom, θ=π at top (upright)
         θ0 = s_pred[0]
 
-        # Wrap θ0 to (-π, π]
-        θ0_wrapped = ((θ0 + np.pi) % (2 * np.pi)) - np.pi
+        # STANDARD RL CONVENTION (CRITICAL):
+        # θ = 0 at TOP (upright, goal)
+        # θ = ±π at BOTTOM (hanging, wrapping point)
+        # Angle wraps at ±π
 
-        # CCW swingup: go to nearest upright position counter-clockwise
-        # θ=π is upright, so we go to nearest (2k+1)π
-        if θ0_wrapped <= 0:
-            θ_target_ccw = np.pi  # Go up to π
-            θ_target_cw = -np.pi  # Go down to -π (same as π, but through bottom)
-        else:
-            θ_target_ccw = np.pi  # Stay at π
-            θ_target_cw = -np.pi  # Wrap around
-
-        # Actually, let's be more systematic: find the two nearest uprights
-        # Upright positions are at θ = (2k+1)π for integer k
-        # The two nearest are at ..., -π, π, 3π, ...
-        k_nearest = np.round((θ0_wrapped - np.pi) / (2 * np.pi))
-        θ_target_1 = (2 * k_nearest + 1) * np.pi  # One candidate
-        θ_target_2 = (2 * (k_nearest + 1) + 1) * np.pi  # Other candidate
-
-        # Simplify: just use ±π as the two targets
-        θ_target_ccw = np.pi
-        θ_target_cw = -np.pi
+        # For swingup, we always target θ=0 (upright)
+        # The controller will automatically choose the shorter path
+        θ_target = 0.0
 
         best_cost = float('inf')
         best_plan = None
@@ -186,21 +174,20 @@ class TrajectoryPlanner:
         # Physical time: T = 2π / √(g/l) ≈ 2.0 seconds
         T_period = 2 * np.pi / np.sqrt(self.g / self.l)
 
-        # Try both directions with multiple durations (reference uses 1 period)
+        # Try multiple durations to find best trajectory to θ=0 (upright)
         # We try: 1, 1.5, and 2 periods for robustness
-        for θ_target in [θ_target_cw, θ_target_ccw]:
-            for duration in [T_period, 1.5*T_period, 2.0*T_period]:
-                cost = self._plan_maneuver(s_pred, θ_target, duration)
-                if cost is not None and cost < best_cost:
-                    best_cost = cost
-                    best_plan = {
-                        'θ_target': θ_target,
-                        'duration': duration,
-                        'FFsol': self.FFsol,
-                        'Ssol': self.Ssol,
-                        'Kend': self.Kend,
-                        'τ': self.τ
-                    }
+        for duration in [T_period, 1.5*T_period, 2.0*T_period]:
+            cost = self._plan_maneuver(s_pred, θ_target, duration)
+            if cost is not None and cost < best_cost:
+                best_cost = cost
+                best_plan = {
+                    'θ_target': θ_target,
+                    'duration': duration,
+                    'FFsol': self.FFsol,
+                    'Ssol': self.Ssol,
+                    'Kend': self.Kend,
+                    'τ': self.τ
+                }
 
         if best_plan is not None:
             # Restore best plan
@@ -217,16 +204,16 @@ class TrajectoryPlanner:
 
     def _plan_maneuver(self, s: np.ndarray, θ_target: float, duration: float) -> Optional[float]:
         """
-        Plan maneuver with specific duration and target (MATCHES REFERENCE).
+        Plan maneuver with specific duration and target.
 
         Uses Pontryagin's Maximum Principle with SIMPLIFIED DYNAMICS (frictionless):
-            θ̈ = -sin(θ) - u·cos(θ)
+            θ̈ = -(g/l)·sin(θ) - (u/l)·cos(θ)
             ẍ = u
 
         Args:
-            s: Initial state [θ, θ̇, x, ẋ]
-            θ_target: Target angle (π or -π for upright)
-            duration: Trajectory duration (dimensionless)
+            s: Initial state [θ, θ̇, x, ẋ] where θ∈(-π,π], θ=0 is upright
+            θ_target: Target angle (typically 0.0 for upright)
+            duration: Trajectory duration (seconds)
 
         Returns:
             Trajectory cost if successful, None if BVP fails
@@ -392,8 +379,13 @@ class TrajectoryPlanner:
             - During trajectory (t < τ): u = u_ff(t) - K(t)·[s - s*(t)]
             - After trajectory (t >= τ): u = -K_end·[s - s_target]
 
+        CRITICAL CONVENTION:
+            θ ∈ (-π, π]
+            θ = 0 at TOP (upright, goal)
+            θ = ±π at BOTTOM (hanging, wrapping point)
+
         Args:
-            s: Current state [θ, θ̇, x, ẋ] (θ=0 is bottom, θ=π is top)
+            s: Current state [θ, θ̇, x, ẋ]
             t: Time since start of maneuver (seconds)
 
         Returns:
@@ -410,12 +402,11 @@ class TrajectoryPlanner:
             u = self._uff(t) - self._K(t) @ dev
         else:
             # After trajectory: LQR stabilization around upright
-            # Target: θ=π (or -π), x=0
-            target = np.array([np.pi, 0.0, 0.0, 0.0])
+            # Target: θ=0 (upright), x=0 (STANDARD RL CONVENTION)
+            target = np.array([0.0, 0.0, 0.0, 0.0])
 
-            # Handle angle wrapping: compute deviation in wrapped space
+            # Compute deviation (angle already wrapped to (-π, π])
             dev = s - target
-            dev[0] = ((dev[0] + np.pi) % (2 * np.pi)) - np.pi  # Wrap to (-π, π]
 
             u = -self.Kend @ dev
 

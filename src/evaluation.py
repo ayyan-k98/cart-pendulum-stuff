@@ -516,6 +516,8 @@ def compute_metrics(df: pd.DataFrame) -> Dict[str, float]:
     """
     Compute performance metrics from trajectory.
 
+    STANDARD RL CONVENTION: θ ∈ (-π, π], θ=0 at TOP (upright)
+
     Args:
         df: Trajectory DataFrame
 
@@ -531,14 +533,14 @@ def compute_metrics(df: pd.DataFrame) -> Dict[str, float]:
             'episode_length': 0
         }
 
-    # Success: final angle within 10 degrees of upright (θ ≈ ±π)
-    # NEW CONVENTION: θ=0 at bottom, θ=π at top
+    # Success: final angle within 10 degrees of upright (θ ≈ 0)
+    # STANDARD CONVENTION: θ=0 at top (upright)
     final_theta = df['theta'].iloc[-1]
-    final_angle_error = np.abs(np.abs(final_theta) - np.pi)  # Distance from ±π
+    final_angle_error = np.abs(final_theta)  # Distance from θ=0
     success = final_angle_error < np.deg2rad(10)
 
     # Mean angle error (distance from upright throughout trajectory)
-    mean_angle_error = np.abs(np.abs(df['theta']) - np.pi).mean()
+    mean_angle_error = np.abs(df['theta']).mean()
 
     # Control effort (integral of |u|)
     dt = df['time'].diff().mean() if len(df) > 1 else 0.02

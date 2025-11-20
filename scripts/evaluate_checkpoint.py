@@ -151,8 +151,8 @@ def evaluate_single_state(
     # Analyze results
     final_theta = trajectory['theta'].iloc[-1]
     final_theta_deg = np.rad2deg(final_theta)
-    # Success: near upright (θ ≈ ±π = ±180°)
-    theta_error = abs(abs(final_theta) - np.pi)
+    # Success: near upright (θ ≈ 0°) STANDARD RL CONVENTION
+    theta_error = abs(final_theta)
     success = theta_error < np.deg2rad(10)
 
     print("Results:")
@@ -214,9 +214,9 @@ def evaluate_multiple_episodes(
         # Run episode
         traj, timing = rollout_rl_timed(model, vec_env, state, max_seconds=10.0)
 
-        # Check success (θ ≈ ±π = ±180° for upright)
+        # Check success (θ ≈ 0° for upright) STANDARD RL CONVENTION
         final_theta = traj['theta'].iloc[-1]
-        theta_error = abs(abs(final_theta) - np.pi)
+        theta_error = abs(final_theta)
         success = theta_error < np.deg2rad(10)
         successes += int(success)
 
@@ -278,11 +278,11 @@ def evaluate_with_classical_comparison(
 
     state = np.array([np.deg2rad(theta0_deg), 0.0, 0.0, 0.0])
 
-    # Display angle interpretation (NEW CONVENTION: θ=0 at bottom, θ=180 at top)
+    # Display angle interpretation (STANDARD RL CONVENTION: θ=0 at top, θ=±180 at bottom)
     wrapped_deg = np.rad2deg(((state[0] + np.pi) % (2 * np.pi)) - np.pi)
-    deviation_from_upright = abs(wrapped_deg - 180.0)
+    deviation_from_upright = abs(wrapped_deg)
     print(f"\nInitial state: θ₀={theta0_deg:.1f}°")
-    print(f"  (Note: θ=0° is hanging down, θ=180° is upright)")
+    print(f"  (Note: θ=0° is upright, θ=±180° is hanging down)")
     print(f"  Deviation from upright: {deviation_from_upright:.1f}°")
 
     # Create classical planner
@@ -292,8 +292,8 @@ def evaluate_with_classical_comparison(
     print("\nRunning RL controller...")
     traj_rl, timing_rl = rollout_rl_timed(model, vec_env, state, max_seconds=10.0)
     final_theta_rl = np.rad2deg(traj_rl['theta'].iloc[-1])
-    # Success: near upright (θ ≈ ±π = ±180°)
-    theta_error_rl = abs(abs(traj_rl['theta'].iloc[-1]) - np.pi)
+    # Success: near upright (θ ≈ 0°) STANDARD RL CONVENTION
+    theta_error_rl = abs(traj_rl['theta'].iloc[-1])
     success_rl = theta_error_rl < np.deg2rad(10)
 
     # Run Classical
@@ -308,9 +308,9 @@ def evaluate_with_classical_comparison(
         print("  (BVP solver could not find a solution for this initial state)")
 
     final_theta_classical = np.rad2deg(traj_classical['theta'].iloc[-1]) if len(traj_classical) > 0 else theta0_deg
-    # Success: near upright (θ ≈ ±π = ±180°)
+    # Success: near upright (θ ≈ 0°) STANDARD RL CONVENTION
     if len(traj_classical) > 0:
-        theta_error_classical = abs(abs(traj_classical['theta'].iloc[-1]) - np.pi)
+        theta_error_classical = abs(traj_classical['theta'].iloc[-1])
         success_classical = theta_error_classical < np.deg2rad(10)
     else:
         success_classical = False

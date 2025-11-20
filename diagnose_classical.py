@@ -16,12 +16,13 @@ def test_simple_case():
     print("="*80)
     print()
 
-    # Initial state: hanging down (θ=0), at rest, centered
-    theta0_deg = 0.0  # Bottom position
+    # Initial state: hanging down (θ=±180), at rest, centered
+    # STANDARD RL CONVENTION: θ=0 at top, θ=±π at bottom
+    theta0_deg = 180.0  # Hanging down position
     initial_state = np.array([np.deg2rad(theta0_deg), 0.0, 0.0, 0.0])
 
     print(f"Initial state:")
-    print(f"  θ = {theta0_deg:.1f}° (0° = bottom, ±180° = upright)")
+    print(f"  θ = {theta0_deg:.1f}° (0° = upright, ±180° = hanging)")
     print(f"  θ̇ = 0.0 rad/s")
     print(f"  x = 0.0 m")
     print(f"  ẋ = 0.0 m/s")
@@ -103,7 +104,8 @@ def test_simple_case():
     print()
 
     # Check success (using same criterion as evaluation script)
-    theta_error_rad = abs(abs(final_theta_rad) - np.pi)
+    # STANDARD RL CONVENTION: θ=0 is upright
+    theta_error_rad = abs(final_theta_rad)
     theta_error_deg = np.rad2deg(theta_error_rad)
     success = theta_error_rad < np.deg2rad(10)
 
@@ -126,7 +128,8 @@ def test_simple_case():
     print()
 
     # Check if pendulum actually reached upright during trajectory
-    upright_mask = np.abs(np.abs(states_array[:, 0]) - np.pi) < np.deg2rad(30)
+    # STANDARD: θ=0 is upright
+    upright_mask = np.abs(states_array[:, 0]) < np.deg2rad(30)
     if np.any(upright_mask):
         first_upright_idx = np.argmax(upright_mask)
         first_upright_time = times_array[first_upright_idx]
