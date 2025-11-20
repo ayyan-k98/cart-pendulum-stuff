@@ -73,8 +73,8 @@ class TrajectoryPlanner:
         Initialize the trajectory planner.
 
         Args:
-            Q: State cost matrix (4x4). Default: diag([10, 4, 10, 2])
-            R: Control cost matrix (1x1). Default: [[2.0]]
+            Q: State cost matrix (4x4). Default: diag([1, 10, 1, 1]) (reference v6)
+            R: Control cost matrix (1x1). Default: [[10.0]] (reference v6)
             umax: Maximum control acceleration (m/s²), default 20.0
             zeta: Angular friction coefficient (dimensionless, for prediction only)
                 - Reference uses ζ=0.01 for simulations
@@ -84,9 +84,9 @@ class TrajectoryPlanner:
             g: Gravity (m/s²), default 9.81
         """
         if Q is None:
-            Q = np.diag([10.0, 4.0, 10.0, 2.0])
+            Q = np.diag([1.0, 10.0, 1.0, 1.0])  # Reference v6 values
         if R is None:
-            R = np.array([[2.0]])
+            R = np.array([[10.0]])  # Reference v6 value
 
         self.Q = Q
         self.R = R
@@ -181,9 +181,15 @@ class TrajectoryPlanner:
         best_cost = float('inf')
         best_plan = None
 
-        # Try both directions with multiple durations
+        # Compute natural pendulum period (matching reference approach)
+        # Reference uses τ = 2π in dimensionless time
+        # Physical time: T = 2π / √(g/l) ≈ 2.0 seconds
+        T_period = 2 * np.pi / np.sqrt(self.g / self.l)
+
+        # Try both directions with multiple durations (reference uses 1 period)
+        # We try: 1, 1.5, and 2 periods for robustness
         for θ_target in [θ_target_cw, θ_target_ccw]:
-            for duration in [3.5, 4.0, 5.0]:
+            for duration in [T_period, 1.5*T_period, 2.0*T_period]:
                 cost = self._plan_maneuver(s_pred, θ_target, duration)
                 if cost is not None and cost < best_cost:
                     best_cost = cost
@@ -242,8 +248,19 @@ class TrajectoryPlanner:
 
             Control from optimality:
                 u* = -λ_ẋ + (λ_θ̇/l)·cos(θ)
+
+            CRITICAL: scipy's solve_bvp can pass X as 1D or 2D!
+                - 1D: X.shape = (8,) for single evaluation point
+                - 2D: X.shape = (8, n) for n evaluation points
+            Reference implementation handles both cases explicitly.
             """
-            θ, θdot, x, xdot, λθ, λθdot, λx, λxdot = X
+            # Handle both 1D and 2D cases (CRITICAL FIX matching reference)
+            if X.ndim == 1:
+                X_reshaped = X.reshape(-1, 1)
+            else:
+                X_reshaped = X
+
+            θ, θdot, x, xdot, λθ, λθdot, λx, λxdot = X_reshaped
 
             # Optimal control (from ∂H/∂u = 0)
             # For the system with dynamics θ̈ = -(g/l)sin(θ) - (u/l)cos(θ), ẍ = u
@@ -251,11 +268,11 @@ class TrajectoryPlanner:
             u = -λxdot + (λθdot / self.l) * np.cos(θ)
 
             # State dynamics (SIMPLIFIED, FRICTIONLESS)
-            dX = np.zeros_like(X)
-            dX[0, :] = θdot
-            dX[1, :] = -(self.g / self.l) * np.sin(θ) - (u / self.l) * np.cos(θ)  # No friction
-            dX[2, :] = xdot
-            dX[3, :] = u
+            dX = np.zeros((8, X_reshaped.shape[1]))
+            dX[0] = θdot
+            dX[1] = -(self.g / self.l) * np.sin(θ) - (u / self.l) * np.cos(θ)  # No friction
+            dX[2] = xdot
+            dX[3] = u
 
             # Costate dynamics: λ̇ = -∂H/∂x
             # For θ̈ = -(g/l)sin(θ) - (u/l)cos(θ):
@@ -263,10 +280,10 @@ class TrajectoryPlanner:
             # ∂H/∂θ̇ = -λ_θ (no friction term)
             # ∂H/∂x = 0
             # ∂H/∂ẋ = -λ_x
-            dX[4, :] = λθdot * ((self.g / self.l) * np.cos(θ) - (u / self.l) * np.sin(θ))
-            dX[5, :] = -λθ  # No friction damping term
-            dX[6, :] = np.zeros_like(λx)
-            dX[7, :] = -λx
+            dX[4] = λθdot * ((self.g / self.l) * np.cos(θ) - (u / self.l) * np.sin(θ))
+            dX[5] = -λθ  # No friction damping term
+            dX[6] = np.zeros_like(λx)
+            dX[7] = -λx
 
             return dX
 
