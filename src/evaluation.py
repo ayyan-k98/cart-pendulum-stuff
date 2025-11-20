@@ -182,6 +182,7 @@ def rollout_classical(
     done = False
 
     while t < max_seconds and not done:
+        # Get current state
         state = env.get_state()
 
         # Get control action
@@ -194,14 +195,18 @@ def rollout_classical(
         # Step environment
         obs, reward, terminated, truncated, info = env.step(np.array([action]))
 
-        # Compute accelerations from dynamics
+        # Get NEW state after step (CRITICAL: log state AFTER stepping, not before!)
+        state_after = env.get_state()
+
+        # Compute accelerations from dynamics (using state before step for consistency)
         state_derivative = env._dyn(state, action)  # [theta_dot, theta_ddot, x_dot, x_ddot]
 
+        # Log trajectory (using state AFTER step - this is the actual trajectory)
         history['time'].append(t)
-        history['theta'].append(state[0])
-        history['theta_dot'].append(state[1])
-        history['x'].append(state[2])
-        history['x_dot'].append(state[3])
+        history['theta'].append(state_after[0])
+        history['theta_dot'].append(state_after[1])
+        history['x'].append(state_after[2])
+        history['x_dot'].append(state_after[3])
         history['theta_ddot'].append(state_derivative[1])  # Angular acceleration
         history['x_ddot'].append(state_derivative[3])      # Linear acceleration
         history['action'].append(action)
@@ -388,6 +393,7 @@ def rollout_classical_timed(
     done = False
 
     while t < max_seconds and not done:
+        # Get current state
         state = env.get_state()
 
         # Time the action computation (FF + FB evaluation)
@@ -399,14 +405,18 @@ def rollout_classical_timed(
         # Step environment
         obs, reward, terminated, truncated, info = env.step(np.array([action]))
 
-        # Compute accelerations from dynamics
+        # Get NEW state after step (CRITICAL: log state AFTER stepping, not before!)
+        state_after = env.get_state()
+
+        # Compute accelerations from dynamics (using state before step for consistency)
         state_derivative = env._dyn(state, action)  # [theta_dot, theta_ddot, x_dot, x_ddot]
 
+        # Log trajectory (using state AFTER step - this is the actual trajectory)
         history['time'].append(t)
-        history['theta'].append(state[0])
-        history['theta_dot'].append(state[1])
-        history['x'].append(state[2])
-        history['x_dot'].append(state[3])
+        history['theta'].append(state_after[0])
+        history['theta_dot'].append(state_after[1])
+        history['x'].append(state_after[2])
+        history['x_dot'].append(state_after[3])
         history['theta_ddot'].append(state_derivative[1])  # Angular acceleration
         history['x_ddot'].append(state_derivative[3])      # Linear acceleration
         history['action'].append(action)
@@ -521,13 +531,14 @@ def compute_metrics(df: pd.DataFrame) -> Dict[str, float]:
             'episode_length': 0
         }
 
-    # Success: final angle within 10 degrees of upright
+    # Success: final angle within 10 degrees of upright (θ ≈ ±π)
+    # NEW CONVENTION: θ=0 at bottom, θ=π at top
     final_theta = df['theta'].iloc[-1]
-    final_angle_error = np.abs(final_theta)
+    final_angle_error = np.abs(np.abs(final_theta) - np.pi)  # Distance from ±π
     success = final_angle_error < np.deg2rad(10)
 
-    # Mean angle error
-    mean_angle_error = np.abs(df['theta']).mean()
+    # Mean angle error (distance from upright throughout trajectory)
+    mean_angle_error = np.abs(np.abs(df['theta']) - np.pi).mean()
 
     # Control effort (integral of |u|)
     dt = df['time'].diff().mean() if len(df) > 1 else 0.02
