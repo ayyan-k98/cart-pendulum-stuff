@@ -52,8 +52,7 @@ def rollout_rl(
     vec_env: VecNormalize,
     start_state: np.ndarray,
     max_seconds: float = 20.0,
-    c_theta: float = 0.02,
-    c_x: float = 0.05,
+    zeta: float = 0.01,
     eval_substeps: int = 10
 ) -> pd.DataFrame:
     """
@@ -64,8 +63,7 @@ def rollout_rl(
         vec_env: VecNormalize wrapper (for observation normalization)
         start_state: Initial state [θ, θ̇, x, ẋ]
         max_seconds: Maximum episode duration
-        c_theta: Angular friction coefficient
-        c_x: Linear friction coefficient
+        zeta: Angular friction coefficient
         eval_substeps: RK4 substeps for evaluation
 
     Returns:
@@ -74,8 +72,7 @@ def rollout_rl(
     # Create evaluation environment with same dynamics
     env = CartPendulumEnv(
         curriculum_phase="swingup",
-        c_theta=c_theta,
-        c_x=c_x,
+        zeta=zeta,
         rk4_substeps=eval_substeps,
         soft_wall_k=0.0  # No soft walls for clean evaluation
     )
@@ -131,8 +128,7 @@ def rollout_classical(
     vec_env: VecNormalize,
     start_state: np.ndarray,
     max_seconds: float = 20.0,
-    c_theta: float = 0.02,
-    c_x: float = 0.05,
+    zeta: float = 0.01,
     eval_substeps: int = 10,
     use_normalized_obs: bool = True
 ) -> pd.DataFrame:
@@ -149,8 +145,7 @@ def rollout_classical(
         vec_env: VecNormalize wrapper (for observation normalization)
         start_state: Initial state [θ, θ̇, x, ẋ]
         max_seconds: Maximum episode duration
-        c_theta: Angular friction coefficient
-        c_x: Linear friction coefficient
+        zeta: Angular friction coefficient
         eval_substeps: RK4 substeps for evaluation
         use_normalized_obs: If True, planner receives normalized observations (FAIR!)
 
@@ -160,8 +155,7 @@ def rollout_classical(
     # Create evaluation environment
     env = CartPendulumEnv(
         curriculum_phase="swingup",
-        c_theta=c_theta,
-        c_x=c_x,
+        zeta=zeta,
         rk4_substeps=eval_substeps,
         soft_wall_k=0.0
     )
@@ -224,8 +218,7 @@ def rollout_rl_timed(
     vec_env: VecNormalize,
     start_state: np.ndarray,
     max_seconds: float = 20.0,
-    c_theta: float = 0.02,
-    c_x: float = 0.05,
+    zeta: float = 0.01,
     eval_substeps: int = 10
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
     """
@@ -238,8 +231,7 @@ def rollout_rl_timed(
         vec_env: VecNormalize wrapper
         start_state: Initial state [θ, θ̇, x, ẋ]
         max_seconds: Maximum episode duration
-        c_theta: Angular friction
-        c_x: Linear friction
+        zeta: Angular friction coefficient
         eval_substeps: RK4 substeps
 
     Returns:
@@ -253,8 +245,7 @@ def rollout_rl_timed(
     # Create environment
     env = CartPendulumEnv(
         curriculum_phase="swingup",
-        c_theta=c_theta,
-        c_x=c_x,
+        zeta=zeta,
         rk4_substeps=eval_substeps,
         soft_wall_k=0.0
     )
@@ -327,8 +318,7 @@ def rollout_classical_timed(
     vec_env: VecNormalize,
     start_state: np.ndarray,
     max_seconds: float = 20.0,
-    c_theta: float = 0.02,
-    c_x: float = 0.05,
+    zeta: float = 0.01,
     eval_substeps: int = 10
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
     """
@@ -343,8 +333,7 @@ def rollout_classical_timed(
         vec_env: VecNormalize wrapper (for consistency)
         start_state: Initial state [θ, θ̇, x, ẋ]
         max_seconds: Maximum episode duration
-        c_theta: Angular friction
-        c_x: Linear friction
+        zeta: Angular friction coefficient
         eval_substeps: RK4 substeps
 
     Returns:
@@ -360,8 +349,7 @@ def rollout_classical_timed(
     # Create environment
     env = CartPendulumEnv(
         curriculum_phase="swingup",
-        c_theta=c_theta,
-        c_x=c_x,
+        zeta=zeta,
         rk4_substeps=eval_substeps,
         soft_wall_k=0.0
     )
@@ -444,8 +432,7 @@ def compare_controllers(
     model_path: str,
     vecnorm_path: str,
     start_states: List[np.ndarray],
-    c_theta: float = 0.02,
-    c_x: float = 0.05,
+    zeta: float = 0.01,
     eval_substeps: int = 10,
     max_seconds: float = 20.0,
     verbose: bool = True
@@ -457,8 +444,7 @@ def compare_controllers(
         model_path: Path to trained SAC model
         vecnorm_path: Path to VecNormalize stats
         start_states: List of initial states [θ, θ̇, x, ẋ]
-        c_theta: Angular friction
-        c_x: Linear friction
+        zeta: Angular friction coefficient
         eval_substeps: RK4 substeps
         max_seconds: Max episode duration
         verbose: Print progress
@@ -471,7 +457,7 @@ def compare_controllers(
 
     # Load model and VecNormalize
     def make_dummy_env():
-        env = CartPendulumEnv(c_theta=c_theta, c_x=c_x, rk4_substeps=eval_substeps)
+        env = CartPendulumEnv(zeta=zeta, rk4_substeps=eval_substeps)
         return TimeLimit(env, max_episode_steps=2000)
 
     dummy_env = DummyVecEnv([make_dummy_env])
@@ -482,8 +468,8 @@ def compare_controllers(
     model = SAC.load(model_path, device='cpu')
 
     # Create classical controller with friction modeling
-    # Use c_theta for prediction and dynamics to match evaluation environment
-    planner = TrajectoryPlanner(umax=10.0, c_theta=c_theta)
+    # Use zeta for prediction and dynamics to match evaluation environment
+    planner = TrajectoryPlanner(umax=20.0, zeta=zeta)
 
     rl_trajectories = []
     classical_trajectories = []
@@ -497,8 +483,7 @@ def compare_controllers(
         rl_traj = rollout_rl(
             model, vec_env, start_state,
             max_seconds=max_seconds,
-            c_theta=c_theta,
-            c_x=c_x,
+            zeta=zeta,
             eval_substeps=eval_substeps
         )
         rl_trajectories.append(rl_traj)
@@ -507,8 +492,7 @@ def compare_controllers(
         classical_traj = rollout_classical(
             planner, vec_env, start_state,
             max_seconds=max_seconds,
-            c_theta=c_theta,
-            c_x=c_x,
+            zeta=zeta,
             eval_substeps=eval_substeps
         )
         classical_trajectories.append(classical_traj)
