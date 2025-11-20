@@ -274,7 +274,13 @@ def evaluate_with_classical_comparison(
     print("="*80)
 
     state = np.array([np.deg2rad(theta0_deg), 0.0, 0.0, 0.0])
+
+    # Display angle interpretation (NEW CONVENTION: θ=0 at bottom, θ=180 at top)
+    wrapped_deg = np.rad2deg(((state[0] + np.pi) % (2 * np.pi)) - np.pi)
+    deviation_from_upright = abs(wrapped_deg - 180.0)
     print(f"\nInitial state: θ₀={theta0_deg:.1f}°")
+    print(f"  (Note: θ=0° is hanging down, θ=180° is upright)")
+    print(f"  Deviation from upright: {deviation_from_upright:.1f}°")
 
     # Create classical planner
     planner = TrajectoryPlanner(umax=20.0)
@@ -290,8 +296,14 @@ def evaluate_with_classical_comparison(
     traj_classical, timing_classical = rollout_classical_timed(
         planner, vec_env, state, max_seconds=10.0
     )
-    final_theta_classical = np.rad2deg(traj_classical['theta'].iloc[-1])
-    success_classical = abs(traj_classical['theta'].iloc[-1]) < np.deg2rad(10)
+
+    # Check if planning succeeded
+    if not timing_classical.get('planning_success', False):
+        print("  ⚠ WARNING: Classical planner failed to find trajectory!")
+        print("  (BVP solver could not find a solution for this initial state)")
+
+    final_theta_classical = np.rad2deg(traj_classical['theta'].iloc[-1]) if len(traj_classical) > 0 else theta0_deg
+    success_classical = abs(traj_classical['theta'].iloc[-1]) < np.deg2rad(10) if len(traj_classical) > 0 else False
 
     # Results
     print("\nResults:")
@@ -303,11 +315,12 @@ def evaluate_with_classical_comparison(
     print(f"  Classical:")
     print(f"    Final angle: {final_theta_classical:+.2f}°")
     print(f"    Success: {'✓ YES' if success_classical else '✗ NO'}")
-    print(f"    Planning time: {timing_classical.get('initial_plan_ms', 0):.1f}ms")
+    print(f"    Planning time: {timing_classical.get('initial_plan_time_ms', 0):.1f}ms")
+    print(f"    Planning success: {'✓' if timing_classical.get('planning_success', False) else '✗'}")
 
     # Timing comparison
     if success_rl and success_classical:
-        speedup = timing_classical.get('initial_plan_ms', 0) / timing_rl['inference_time_mean_ms']
+        speedup = timing_classical.get('initial_plan_time_ms', 0) / timing_rl['inference_time_mean_ms']
         print(f"\n  RL is ~{speedup:.0f}× faster than classical planning!")
 
     # Create comparison animation
